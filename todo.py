@@ -5,17 +5,13 @@ import os
 import libsql_client
 import nest_asyncio
 
-# Apply the patch for asyncio to allow nested event loops. This is our best defense against
-# potential conflicts between the database driver and Streamlit's environment.
+# Apply the patch for asyncio to allow nested event loops. This is crucial for compatibility.
 nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
 @st.cache_resource
 def get_turso_client():
-    """
-    Establishes a cached, single connection to the Turso database using the official
-    libsql-client library.
-    """
+    """Establishes a cached, single connection to the Turso/libSQL database."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -23,7 +19,7 @@ def get_turso_client():
         st.error("Turso database credentials are not configured. Please set secrets.")
         st.stop()
         
-    # Force an HTTPS connection which is more stable in some cloud environments
+    # Force an HTTPS connection which is more stable in Streamlit Cloud environments
     if url.startswith("libsql://"):
         url = "https" + url[6:]
         
@@ -34,6 +30,13 @@ def get_turso_client():
         st.exception(e)
         st.stop()
 
+def _convert_result_to_dicts(result):
+    """
+    Helper function to convert Turso query results into a list of dictionaries.
+    The Row objects from the result set are directly convertible to dicts.
+    """
+    return [dict(row) for row in result.rows]
+
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
     try:
@@ -41,7 +44,7 @@ def init_db():
         client.batch([
             """
             CREATE TABLE IF NOT EXISTS lists (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 type TEXT NOT NULL,
                 pinned INTEGER NOT NULL DEFAULT 0,
@@ -85,7 +88,7 @@ def db_create_list(name, list_type):
 def db_get_all_lists():
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
-    lists = [dict(zip(rs.columns, row)) for row in rs.rows]
+    lists = _convert_result_to_dicts(rs)
     for lst in lists:
         lst['pinned'] = bool(lst['pinned'])
         lst['created_at'] = datetime.fromisoformat(lst['created_at'])
@@ -94,9 +97,9 @@ def db_get_all_lists():
 def db_get_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists WHERE id = ?", (list_id,))
-    rows = [dict(zip(rs.columns, row)) for row in rs.rows]
-    if not rows: return None
-    lst = rows[0]
+    lists = _convert_result_to_dicts(rs)
+    if not lists: return None
+    lst = lists[0]
     lst['pinned'] = bool(lst['pinned'])
     lst['created_at'] = datetime.fromisoformat(lst['created_at'])
     return lst
@@ -120,7 +123,7 @@ def db_add_task(list_id, text, deadline, important, urgent):
 def db_get_tasks_for_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", (list_id,))
-    tasks = [dict(zip(rs.columns, row)) for row in rs.rows]
+    tasks = _convert_result_to_dicts(rs)
     for task in tasks:
         task['completed'] = bool(task['completed'])
         task['important'] = bool(task['important'])
@@ -156,18 +159,15 @@ def sort_tasks(tasks):
 
 # --- UI COMPONENT FUNCTIONS ---
 def local_css():
-    # This function is temporarily disabled to prevent a persistent TypeError.
-    # The app will use default Streamlit styling.
-    # st.markdown("""
-    # <style>
-    #     body { font-family: 'Inter', sans-serif; }
-    #     #MainMenu, footer { visibility: hidden; }
-    #     .completed-task { text-decoration: line-through; color: #888; }
-    #     div.stButton > button { width: 100%; border-radius: 5px; }
-    #     .main .block-container { padding-top: 2rem; }
-    # </style>
-    # """, unsafe_html=True)
-    pass
+    st.markdown("""
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #MainMenu, footer { visibility: hidden; }
+        .completed-task { text-decoration: line-through; color: #888; }
+        div.stButton > button { width: 100%; border-radius: 5px; }
+        .main .block-container { padding-top: 2rem; }
+    </style>
+    """, unsafe_html=True)
 
 def initialize_state():
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
@@ -196,7 +196,7 @@ def main_app_ui():
                 new_list_name = st.text_input("List Name")
                 new_list_type = st.selectbox("List Type", ["Simple", "Financial"])
                 if st.form_submit_button("Create List") and new_list_name:
-                    db_create_list(new_list_name, new_list_type)
+                    db_.create_list(new_list_name, new_list_type)
                     st.success(f"List '{new_list_name}' created!")
         st.markdown("---")
         sorted_list_items = sort_lists(db_get_all_lists())
@@ -276,8 +276,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="auto"
 )
-# The local_css() function is called here, but its contents are commented out
-# to prevent the app from crashing.
 local_css()
 initialize_state()
 
