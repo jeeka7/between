@@ -1,23 +1,28 @@
 import streamlit as st
 from datetime import datetime, date
 import uuid
-import sqlite3
+import libsql_client
+import os
 
 # --- DATABASE SETUP ---
-DB_FILE = "todos.db"
-
-def get_db_connection():
-    """Establishes a connection to the SQLite database."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row  # This allows accessing columns by name
-    return conn
+def create_turso_client():
+    """Establishes a connection to the Turso/libSQL database."""
+    # Secrets are fetched from Streamlit's secrets management
+    url = st.secrets.get("TURSO_DATABASE_URL")
+    auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
+    
+    if not url or not auth_token:
+        st.error("Turso database credentials are not configured. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your Streamlit secrets.")
+        st.stop()
+        
+    return libsql_client.create_client(url=url, auth_token=auth_token)
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Create lists table
-    cursor.execute("""
+    client = create_turso_client()
+    # Use batch execution for initial setup
+    client.batch([
+        """
         CREATE TABLE IF NOT EXISTS lists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -25,9 +30,8 @@ def init_db():
             pinned INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         )
-    """)
-    # Create tasks table
-    cursor.execute("""
+        """,
+        """
         CREATE TABLE IF NOT EXISTS tasks (
             id TEXT PRIMARY KEY,
             list_id INTEGER NOT NULL,
@@ -39,9 +43,8 @@ def init_db():
             deadline TEXT,
             FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
         )
-    """)
-    conn.commit()
-    conn.close()
+        """
+    ])
 
 # Initialize the database on first run
 init_db()
@@ -106,95 +109,81 @@ def initialize_state():
 
 initialize_state()
 
-# --- DATABASE CRUD OPERATIONS ---
+# --- DATABASE CRUD OPERATIONS (TURSO/LIBSQL) ---
 
 def db_create_list(name, list_type):
-    conn = get_db_connection()
+    client = create_turso_client()
     try:
-        conn.execute(
+        client.execute(
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
-            (name, list_type, 0, datetime.now().isoformat())
+            [name, list_type, 0, datetime.now().isoformat()]
         )
-        conn.commit()
-    except sqlite3.IntegrityError: # Handles unique constraint violation for name
-        st.error("A list with this name already exists.")
-    finally:
-        conn.close()
+    except libsql_client.LibsqlError as e:
+        if "UNIQUE constraint failed" in str(e):
+            st.error("A list with this name already exists.")
+        else:
+            st.error(f"Database error: {e}")
 
 def db_get_all_lists():
-    conn = get_db_connection()
-    lists = conn.execute("SELECT * FROM lists").fetchall()
-    conn.close()
-    # Convert Row objects to dictionaries and parse dates
+    client = create_turso_client()
+    rs = client.execute("SELECT * FROM lists")
     return [
         {
-            "id": l["id"],
-            "name": l["name"],
-            "type": l["type"],
-            "pinned": bool(l["pinned"]),
-            "created_at": datetime.fromisoformat(l["created_at"])
-        } for l in lists
+            "id": row["id"],
+            "name": row["name"],
+            "type": row["type"],
+            "pinned": bool(row["pinned"]),
+            "created_at": datetime.fromisoformat(row["created_at"])
+        } for row in rs.rows
     ]
 
 def db_get_list(list_id):
-    conn = get_db_connection()
-    lst = conn.execute("SELECT * FROM lists WHERE id = ?", (list_id,)).fetchone()
-    conn.close()
-    if not lst: return None
+    client = create_turso_client()
+    rs = client.execute("SELECT * FROM lists WHERE id = ?", [list_id])
+    if not rs.rows: return None
+    row = rs.rows[0]
     return {
-        "id": lst["id"], "name": lst["name"], "type": lst["type"],
-        "pinned": bool(lst["pinned"]),
-        "created_at": datetime.fromisoformat(lst["created_at"])
+        "id": row["id"], "name": row["name"], "type": row["type"],
+        "pinned": bool(row["pinned"]),
+        "created_at": datetime.fromisoformat(row["created_at"])
     }
 
 def db_toggle_pin_list(list_id, current_pin_status):
-    conn = get_db_connection()
-    conn.execute("UPDATE lists SET pinned = ? WHERE id = ?", (not current_pin_status, list_id))
-    conn.commit()
-    conn.close()
+    client = create_turso_client()
+    client.execute("UPDATE lists SET pinned = ? WHERE id = ?", [not current_pin_status, list_id])
 
 def db_delete_list(list_id):
-    conn = get_db_connection()
-    conn.execute("DELETE FROM lists WHERE id = ?", (list_id,))
-    conn.commit()
-    conn.close()
+    client = create_turso_client()
+    client.execute("DELETE FROM lists WHERE id = ?", [list_id])
 
 def db_add_task(list_id, text, deadline, important, urgent):
     deadline_str = deadline.isoformat() if deadline else None
-    conn = get_db_connection()
-    conn.execute(
+    client = create_turso_client()
+    client.execute(
         "INSERT INTO tasks (id, list_id, text, completed, important, urgent, created_at, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str)
+        [str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str]
     )
-    conn.commit()
-    conn.close()
     
 def db_get_tasks_for_list(list_id):
-    conn = get_db_connection()
-    tasks = conn.execute("SELECT * FROM tasks WHERE list_id = ?", (list_id,)).fetchall()
-    conn.close()
-    # Convert to dictionaries and parse dates/booleans
+    client = create_turso_client()
+    rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", [list_id])
     return [
         {
-            "id": t["id"], "list_id": t["list_id"], "text": t["text"],
-            "completed": bool(t["completed"]), "important": bool(t["important"]),
-            "urgent": bool(t["urgent"]),
-            "created_at": datetime.fromisoformat(t["created_at"]),
-            "deadline": date.fromisoformat(t["deadline"]) if t["deadline"] else None
-        } for t in tasks
+            "id": row["id"], "list_id": row["list_id"], "text": row["text"],
+            "completed": bool(row["completed"]), "important": bool(row["important"]),
+            "urgent": bool(row["urgent"]),
+            "created_at": datetime.fromisoformat(row["created_at"]),
+            "deadline": date.fromisoformat(row["deadline"]) if row["deadline"] else None
+        } for row in rs.rows
     ]
 
 def db_update_task_completion(task_id, completed):
-    conn = get_db_connection()
-    conn.execute("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
-    conn.commit()
-    conn.close()
+    client = create_turso_client()
+    client.execute("UPDATE tasks SET completed = ? WHERE id = ?", [int(completed), task_id])
 
 def db_delete_task(task_id):
-    conn = get_db_connection()
-    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    conn.commit()
-    conn.close()
+    client = create_turso_client()
+    client.execute("DELETE FROM tasks WHERE id = ?", [task_id])
 
 
 # --- HELPER FUNCTIONS ---
