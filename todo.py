@@ -33,9 +33,9 @@ def get_turso_client():
 def _convert_result_to_dicts(result):
     """
     Helper function to convert Turso query results into a list of dictionaries.
-    The Row objects from the result set are directly convertible to dicts.
+    The ResultSet object is directly iterable.
     """
-    return [dict(row) for row in result.rows]
+    return [dict(row) for row in result]
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
