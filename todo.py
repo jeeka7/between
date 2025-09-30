@@ -9,8 +9,9 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
-def create_turso_client():
-    """Establishes a connection to the Turso/libSQL database."""
+@st.cache_resource
+def get_turso_client():
+    """Establishes a cached, single connection to the Turso/libSQL database."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -28,7 +29,7 @@ def create_turso_client():
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
     try:
-        client = create_turso_client()
+        client = get_turso_client()
         client.batch([
             """
             CREATE TABLE IF NOT EXISTS lists (
@@ -124,7 +125,7 @@ initialize_state()
 # --- DATABASE CRUD OPERATIONS (TURSO/LIBSQL) ---
 
 def db_create_list(name, list_type):
-    client = create_turso_client()
+    client = get_turso_client()
     try:
         client.execute(
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
@@ -137,7 +138,7 @@ def db_create_list(name, list_type):
             st.error(f"Database error: {e}")
 
 def db_get_all_lists():
-    client = create_turso_client()
+    client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
     return [
         {
@@ -150,7 +151,7 @@ def db_get_all_lists():
     ]
 
 def db_get_list(list_id):
-    client = create_turso_client()
+    client = get_turso_client()
     rs = client.execute("SELECT * FROM lists WHERE id = ?", [list_id])
     if not rs.rows: return None
     row = rs.rows[0]
@@ -161,23 +162,23 @@ def db_get_list(list_id):
     }
 
 def db_toggle_pin_list(list_id, current_pin_status):
-    client = create_turso_client()
+    client = get_turso_client()
     client.execute("UPDATE lists SET pinned = ? WHERE id = ?", [not current_pin_status, list_id])
 
 def db_delete_list(list_id):
-    client = create_turso_client()
+    client = get_turso_client()
     client.execute("DELETE FROM lists WHERE id = ?", [list_id])
 
 def db_add_task(list_id, text, deadline, important, urgent):
     deadline_str = deadline.isoformat() if deadline else None
-    client = create_turso_client()
+    client = get_turso_client()
     client.execute(
         "INSERT INTO tasks (id, list_id, text, completed, important, urgent, created_at, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str]
     )
     
 def db_get_tasks_for_list(list_id):
-    client = create_turso_client()
+    client = get_turso_client()
     rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", [list_id])
     return [
         {
@@ -190,11 +191,11 @@ def db_get_tasks_for_list(list_id):
     ]
 
 def db_update_task_completion(task_id, completed):
-    client = create_turso_client()
+    client = get_turso_client()
     client.execute("UPDATE tasks SET completed = ? WHERE id = ?", [int(completed), task_id])
 
 def db_delete_task(task_id):
-    client = create_turso_client()
+    client = get_turso_client()
     client.execute("DELETE FROM tasks WHERE id = ?", [task_id])
 
 
