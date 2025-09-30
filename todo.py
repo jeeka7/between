@@ -10,13 +10,12 @@ nest_asyncio.apply()
 
 # --- VERSION CANARY ---
 # This line helps us confirm that the latest code is running.
-st.info("App version: 2.1 - Python 3.11 Test")
+st.info("App version: 2.2 - Python 3.9 Test")
 
 
 # --- DATABASE SETUP ---
 def create_turso_client():
     """Establishes a connection to the Turso/libSQL database."""
-    # Secrets are fetched from Streamlit's secrets management
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -28,35 +27,36 @@ def create_turso_client():
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
-    client = create_turso_client()
-    # Use batch execution for initial setup
-    client.batch([
-        """
-        CREATE TABLE IF NOT EXISTS lists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            type TEXT NOT NULL,
-            pinned INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS tasks (
-            id TEXT PRIMARY KEY,
-            list_id INTEGER NOT NULL,
-            text TEXT NOT NULL,
-            completed INTEGER NOT NULL DEFAULT 0,
-            important INTEGER NOT NULL DEFAULT 0,
-            urgent INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            deadline TEXT,
-            FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
-        )
-        """
-    ])
-
-# Initialize the database on first run
-init_db()
+    try:
+        client = create_turso_client()
+        client.batch([
+            """
+            CREATE TABLE IF NOT EXISTS lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                list_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                important INTEGER NOT NULL DEFAULT 0,
+                urgent INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                deadline TEXT,
+                FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
+            )
+            """
+        ])
+        return True # Indicate success
+    except Exception as e:
+        st.error(f"Failed to initialize database: {e}")
+        st.stop()
 
 
 # --- PAGE CONFIGURATION ---
@@ -115,6 +115,8 @@ def initialize_state():
         st.session_state.logged_in = False
     if 'selected_list_id' not in st.session_state:
         st.session_state.selected_list_id = None
+    if 'db_initialized' not in st.session_state:
+        st.session_state.db_initialized = False
 
 initialize_state()
 
@@ -340,7 +342,7 @@ def main_app():
                         if task['important']: priority_icons += "⭐"
                         if task['urgent']: priority_icons += "🔥"
                         deadline_str = f" (Due: {task['deadline'].strftime('%b %d')})" if task.get('deadline') else ""
-                        st.markdown(f'<p class="{task_class}">{priority_icons} {task["text"]}{deadline_str}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="{task_class}">{priority_icons} {task["text"]}{deadline_str}</p>', unsafe_html=True)
 
                     with cols[2]:
                         if st.button("❌", key=f"delete_task_{task_id}", help="Delete task"):
@@ -352,6 +354,11 @@ def main_app():
 if not st.session_state.logged_in:
     login_page()
 else:
-    main_app()
-
+    # Initialize DB only after login and only once per session
+    if not st.session_state.db_initialized:
+        if init_db():
+            st.session_state.db_initialized = True
+    
+    if st.session_state.db_initialized:
+        main_app()
 
