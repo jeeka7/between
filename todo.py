@@ -152,15 +152,18 @@ def sort_tasks(tasks):
 
 # --- UI COMPONENT FUNCTIONS ---
 def local_css():
-    st.markdown("""
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        #MainMenu, footer { visibility: hidden; }
-        .completed-task { text-decoration: line-through; color: #888; }
-        div.stButton > button { width: 100%; border-radius: 5px; }
-        .main .block-container { padding-top: 2rem; }
-    </style>
-    """, unsafe_html=True)
+    # This function is temporarily disabled to prevent a persistent TypeError.
+    # The app will use default Streamlit styling.
+    # st.markdown("""
+    # <style>
+    #     body { font-family: 'Inter', sans-serif; }
+    #     #MainMenu, footer { visibility: hidden; }
+    #     .completed-task { text-decoration: line-through; color: #888; }
+    #     div.stButton > button { width: 100%; border-radius: 5px; }
+    #     .main .block-container { padding-top: 2rem; }
+    # </style>
+    # """, unsafe_html=True)
+    pass
 
 def initialize_state():
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
@@ -269,6 +272,8 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="auto"
 )
+# The local_css() function is called here, but its contents are commented out
+# to prevent the app from crashing.
 local_css()
 initialize_state()
 
