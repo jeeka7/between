@@ -272,25 +272,21 @@ def main_app_ui():
                         db_delete_task(task['id'])
                         st.rerun()
 
-def main():
-    """Main function to configure and run the Streamlit app."""
-    st.set_page_config(
-        page_title="Between",
-        page_icon="✅",
-        layout="centered",
-        initial_sidebar_state="auto"
-    )
-    local_css()
-    initialize_state()
+# --- SCRIPT EXECUTION ---
+st.set_page_config(
+    page_title="Between",
+    page_icon="✅",
+    layout="centered",
+    initial_sidebar_state="auto"
+)
+local_css()
+initialize_state()
 
-    # --- ROUTING LOGIC ---
-    if not st.session_state.logged_in:
-        login_page()
-    else:
-        if not st.session_state.db_initialized:
-            if init_db(): st.session_state.db_initialized = True
-        if st.session_state.db_initialized: main_app_ui()
-
-if __name__ == "__main__":
-    main()
+# --- ROUTING LOGIC ---
+if not st.session_state.logged_in:
+    login_page()
+else:
+    if not st.session_state.db_initialized:
+        if init_db(): st.session_state.db_initialized = True
+    if st.session_state.db_initialized: main_app_ui()
 
