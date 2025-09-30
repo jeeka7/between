@@ -5,7 +5,7 @@ import libsql_client
 import os
 import nest_asyncio
 
-# Apply the patch for asyncio to allow nested event loops, which fixes the RuntimeError
+# Apply the patch for asyncio to allow nested event loops.
 nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
@@ -14,54 +14,50 @@ def create_turso_client():
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
-    # --- DIAGNOSTIC STEP 1: Verify Secrets are loaded ---
-    if not hasattr(st, 'secrets_verified'):
-        if url and auth_token:
-            st.toast("✅ Secrets loaded successfully.", icon="✅")
-        else:
-            st.error("Turso database credentials (URL or Auth Token) were NOT found in your Streamlit secrets. Please check them.")
-        st.secrets_verified = True # Ensure this check runs only once
-        
     if not url or not auth_token:
+        st.error("Turso database credentials are not configured. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your Streamlit secrets.")
         st.stop()
+        
+    # --- FINAL FIX: Force HTTPS connection to avoid asyncio issues ---
+    # The libsql-client library uses a more stable HTTP connection when the URL starts with https.
+    if url.startswith("libsql://"):
+        url = "https" + url[6:]
         
     return libsql_client.create_client(url=url, auth_token=auth_token)
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
     try:
-        with st.spinner("Connecting to database and setting up tables..."):
-            client = create_turso_client()
-            client.batch([
-                """
-                CREATE TABLE IF NOT EXISTS lists (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    type TEXT NOT NULL,
-                    pinned INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                )
-                """,
-                """
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id TEXT PRIMARY KEY,
-                    list_id INTEGER NOT NULL,
-                    text TEXT NOT NULL,
-                    completed INTEGER NOT NULL DEFAULT 0,
-                    important INTEGER NOT NULL DEFAULT 0,
-                    urgent INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    deadline TEXT,
-                    FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
-                )
-                """
-            ])
-        st.toast("Database initialized successfully!", icon="🎉")
+        client = create_turso_client()
+        client.batch([
+            """
+            CREATE TABLE IF NOT EXISTS lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                list_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                important INTEGER NOT NULL DEFAULT 0,
+                urgent INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                deadline TEXT,
+                FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
+            )
+            """
+        ])
         return True # Indicate success
     except Exception as e:
         st.error(f"Failed to initialize database: {e}")
-        st.exception(e) # Show full traceback for debugging
-        return False
+        st.exception(e)
+        st.stop()
 
 
 # --- PAGE CONFIGURATION ---
@@ -243,17 +239,6 @@ def login_page():
 # --- MAIN APPLICATION UI ---
 def main_app():
     """The main UI of the to-do list application."""
-
-    # --- DIAGNOSTIC STEP 2: Manual DB Initialization ---
-    if not st.session_state.db_initialized:
-        st.warning("Database connection has not been initialized.")
-        if st.button("Connect to Database"):
-            if init_db():
-                st.session_state.db_initialized = True
-                st.rerun()
-        return # Stop execution until the database is connected
-
-
     # --- SIDEBAR FOR LIST MANAGEMENT ---
     with st.sidebar:
         st.title("Your Lists")
@@ -369,6 +354,11 @@ def main_app():
 if not st.session_state.logged_in:
     login_page()
 else:
-    # We no longer initialize the DB automatically. The user must click the button.
-    main_app()
+    # Initialize DB only after login and only once per session
+    if not st.session_state.db_initialized:
+        if init_db():
+            st.session_state.db_initialized = True
+    
+    if st.session_state.db_initialized:
+        main_app()
 
