@@ -69,17 +69,20 @@ st.set_page_config(
 )
 
 # --- CUSTOM CSS FOR MINIMALIST STYLING ---
-st.markdown("""
-<style>
-    body { font-family: 'Inter', sans-serif; }
-    #MainMenu, footer { visibility: hidden; }
-    .completed-task { text-decoration: line-through; color: #888; }
-    .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
-    div.stButton > button { width: 100%; border-radius: 5px; }
-    .main .block-container { padding-top: 2rem; }
-</style>
-""", unsafe_html=True)
+def local_css():
+    """Applies local CSS styles to the Streamlit app."""
+    st.markdown("""
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #MainMenu, footer { visibility: hidden; }
+        .completed-task { text-decoration: line-through; color: #888; }
+        .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
+        div.stButton > button { width: 100%; border-radius: 5px; }
+        .main .block-container { padding-top: 2rem; }
+    </style>
+    """, unsafe_html=True)
 
+local_css()
 
 # --- STATE MANAGEMENT & INITIALIZATION ---
 def initialize_state():
@@ -291,3 +294,4 @@ else:
     if not st.session_state.db_initialized:
         if init_db(): st.session_state.db_initialized = True
     if st.session_state.db_initialized: main_app()
+
