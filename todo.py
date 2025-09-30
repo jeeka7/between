@@ -78,7 +78,7 @@ st.markdown("""
     div.stButton > button { width: 100%; border-radius: 5px; }
     .main .block-container { padding-top: 2rem; }
 </style>
-""", unsafe_allow_html=True)
+""", unsafe_html=True)
 
 
 # --- STATE MANAGEMENT & INITIALIZATION ---
@@ -90,6 +90,8 @@ def initialize_state():
         st.session_state.selected_list_id = None
     if 'db_initialized' not in st.session_state:
         st.session_state.db_initialized = False
+    if 'editing_task_id' not in st.session_state:
+        st.session_state.editing_task_id = None
 
 initialize_state()
 
@@ -162,6 +164,11 @@ def db_update_task_completion(task_id, completed):
 def db_delete_task(task_id):
     client = get_turso_client()
     client.execute("DELETE FROM tasks WHERE id = ?", [task_id])
+
+def db_update_task_text(task_id, new_text):
+    """Updates the text of a specific task."""
+    client = get_turso_client()
+    client.execute("UPDATE tasks SET text = ? WHERE id = ?", [new_text, task_id])
 
 # --- HELPER FUNCTIONS ---
 def get_task_priority(task):
@@ -245,19 +252,37 @@ def main_app():
         st.markdown("---")
         sorted_task_list = sort_tasks(db_get_tasks_for_list(current_list['id']))
         for task in sorted_task_list:
-            cols = st.columns([1, 6, 1])
-            completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task['id']}", label_visibility="collapsed")
-            if completed != task['completed']:
-                db_update_task_completion(task['id'], completed)
-                st.rerun()
-            task_class = "completed-task" if completed else ""
-            priority = "⭐" if task['important'] else ""
-            priority += "🔥" if task['urgent'] else ""
-            deadline = f" (Due: {task['deadline'].strftime('%b %d')})" if task['deadline'] else ""
-            cols[1].markdown(f'<p class="{task_class}">{priority} {task["text"]}{deadline}</p>', unsafe_html=True)
-            if cols[2].button("❌", key=f"delete_task_{task['id']}", help="Delete task"):
-                db_delete_task(task['id'])
-                st.rerun()
+            task_id = task['id']
+            is_editing = st.session_state.get('editing_task_id') == task_id
+
+            if is_editing:
+                with st.form(key=f"edit_form_{task_id}"):
+                    edit_cols = st.columns([5, 1])
+                    new_text = edit_cols[0].text_input("Edit task", value=task['text'], label_visibility="collapsed")
+                    if edit_cols[1].form_submit_button("Save"):
+                        db_update_task_text(task_id, new_text)
+                        st.session_state.editing_task_id = None
+                        st.rerun()
+            else:
+                cols = st.columns([1, 6, 1, 1])
+                completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task['id']}", label_visibility="collapsed")
+                if completed != task['completed']:
+                    db_update_task_completion(task['id'], completed)
+                    st.rerun()
+                with cols[1]:
+                    task_class = "completed-task" if completed else ""
+                    priority = "⭐" if task['important'] else ""
+                    priority += "🔥" if task['urgent'] else ""
+                    deadline = f" (Due: {task['deadline'].strftime('%b %d')})" if task['deadline'] else ""
+                    cols[1].markdown(f'<p class="{task_class}">{priority} {task["text"]}{deadline}</p>', unsafe_html=True)
+                with cols[2]:
+                    if st.button("✏️", key=f"edit_task_{task_id}", help="Edit task"):
+                        st.session_state.editing_task_id = task_id
+                        st.rerun()
+                with cols[3]:
+                    if st.button("❌", key=f"delete_task_{task['id']}", help="Delete task"):
+                        db_delete_task(task['id'])
+                        st.rerun()
 
 # --- ROUTING LOGIC ---
 if not st.session_state.logged_in:
@@ -266,4 +291,3 @@ else:
     if not st.session_state.db_initialized:
         if init_db(): st.session_state.db_initialized = True
     if st.session_state.db_initialized: main_app()
-
