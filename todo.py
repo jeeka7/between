@@ -1,44 +1,49 @@
 import streamlit as st
 from datetime import datetime, date
 import uuid
-import libsql_client
 import os
-import nest_asyncio
-
-# Apply the patch for asyncio to allow nested event loops. This is crucial for compatibility.
-nest_asyncio.apply()
+from turso_python import TursoClient
 
 # --- DATABASE SETUP ---
 @st.cache_resource
 def get_turso_client():
-    """Establishes a cached, single connection to the Turso/libSQL database."""
+    """Establishes a cached, single connection to the Turso database using turso-python."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
     if not url or not auth_token:
-        st.error("Turso database credentials are not configured. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your Streamlit secrets.")
+        st.error("Turso database credentials are not configured. Please set secrets.")
         st.stop()
         
-    # Force an HTTPS connection which is more stable in Streamlit Cloud environments
-    if url.startswith("libsql://"):
-        url = "https" + url[6:]
+    # The turso-python client expects the libsql:// URL format
+    if url.startswith("https://"):
+        url = "libsql" + url[5:]
         
-    return libsql_client.create_client(url=url, auth_token=auth_token)
+    return TursoClient(db_url=url, auth_token=auth_token)
+
+def _convert_result_to_dicts(result):
+    """Helper function to convert Turso query results into a list of dictionaries."""
+    columns = result.columns
+    rows = result.rows
+    return [dict(zip(columns, row)) for row in rows]
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
     try:
         client = get_turso_client()
-        client.batch([
+        # The new client does not support batching in the same way, so we execute statements individually.
+        client.execute(
             """
             CREATE TABLE IF NOT EXISTS lists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 type TEXT NOT NULL,
                 pinned INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             )
-            """,
+            """
+        )
+        client.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
@@ -52,23 +57,22 @@ def init_db():
                 FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
             )
             """
-        ])
-        return True # Indicate success
+        )
+        return True
     except Exception as e:
         st.error(f"Failed to initialize database: {e}")
         st.exception(e)
         st.stop()
 
-
-# --- DATABASE CRUD OPERATIONS (LIBSQL) ---
+# --- DATABASE CRUD OPERATIONS ---
 def db_create_list(name, list_type):
     client = get_turso_client()
     try:
         client.execute(
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
-            [name, list_type, 0, datetime.now().isoformat()]
+            (name, list_type, 0, datetime.now().isoformat())
         )
-    except libsql_client.LibsqlError as e:
+    except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             st.error("A list with this name already exists.")
         else:
@@ -77,107 +81,94 @@ def db_create_list(name, list_type):
 def db_get_all_lists():
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
-    return [
-        {
-            "id": row["id"], "name": row["name"], "type": row["type"],
-            "pinned": bool(row["pinned"]), "created_at": datetime.fromisoformat(row["created_at"])
-        } for row in rs.rows
-    ]
+    lists = _convert_result_to_dicts(rs)
+    for lst in lists:
+        lst['pinned'] = bool(lst['pinned'])
+        lst['created_at'] = datetime.fromisoformat(lst['created_at'])
+    return lists
 
 def db_get_list(list_id):
     client = get_turso_client()
-    rs = client.execute("SELECT * FROM lists WHERE id = ?", [list_id])
-    if not rs.rows: return None
-    row = rs.rows[0]
-    return {
-        "id": row["id"], "name": row["name"], "type": row["type"],
-        "pinned": bool(row["pinned"]), "created_at": datetime.fromisoformat(row["created_at"])
-    }
+    rs = client.execute("SELECT * FROM lists WHERE id = ?", (list_id,))
+    lists = _convert_result_to_dicts(rs)
+    if not lists: return None
+    lst = lists[0]
+    lst['pinned'] = bool(lst['pinned'])
+    lst['created_at'] = datetime.fromisoformat(lst['created_at'])
+    return lst
 
 def db_toggle_pin_list(list_id, current_pin_status):
     client = get_turso_client()
-    client.execute("UPDATE lists SET pinned = ? WHERE id = ?", [not current_pin_status, list_id])
+    client.execute("UPDATE lists SET pinned = ? WHERE id = ?", (int(not current_pin_status), list_id))
 
 def db_delete_list(list_id):
     client = get_turso_client()
-    client.execute("DELETE FROM lists WHERE id = ?", [list_id])
+    client.execute("DELETE FROM lists WHERE id = ?", (list_id,))
 
 def db_add_task(list_id, text, deadline, important, urgent):
     deadline_str = deadline.isoformat() if deadline else None
     client = get_turso_client()
     client.execute(
         "INSERT INTO tasks (id, list_id, text, completed, important, urgent, created_at, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str]
+        (str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str)
     )
     
 def db_get_tasks_for_list(list_id):
     client = get_turso_client()
-    rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", [list_id])
-    return [
-        {
-            "id": row["id"], "list_id": row["list_id"], "text": row["text"],
-            "completed": bool(row["completed"]), "important": bool(row["important"]),
-            "urgent": bool(row["urgent"]), "created_at": datetime.fromisoformat(row["created_at"]),
-            "deadline": date.fromisoformat(row["deadline"]) if row["deadline"] else None
-        } for row in rs.rows
-    ]
+    rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", (list_id,))
+    tasks = _convert_result_to_dicts(rs)
+    for task in tasks:
+        task['completed'] = bool(task['completed'])
+        task['important'] = bool(task['important'])
+        task['urgent'] = bool(task['urgent'])
+        task['created_at'] = datetime.fromisoformat(task['created_at'])
+        task['deadline'] = date.fromisoformat(task['deadline']) if task['deadline'] else None
+    return tasks
 
 def db_update_task_completion(task_id, completed):
     client = get_turso_client()
-    client.execute("UPDATE tasks SET completed = ? WHERE id = ?", [int(completed), task_id])
+    client.execute("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
 
 def db_delete_task(task_id):
     client = get_turso_client()
-    client.execute("DELETE FROM tasks WHERE id = ?", [task_id])
+    client.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
 
 def db_update_task_text(task_id, new_text):
-    """Updates the text of a specific task."""
     client = get_turso_client()
-    client.execute("UPDATE tasks SET text = ? WHERE id = ?", [new_text, task_id])
+    client.execute("UPDATE tasks SET text = ? WHERE id = ?", (new_text, task_id))
 
 # --- HELPER FUNCTIONS ---
 def get_task_priority(task):
-    """Calculates a sortable priority score for a task."""
     if task['important'] and task['urgent']: return 4
     if task['important']: return 3
     if task['urgent']: return 2
     return 1
 
 def sort_lists(lists):
-    """Sorts lists by pinned status, then by creation date."""
     return sorted(lists, key=lambda x: (not x['pinned'], x['created_at']))
 
 def sort_tasks(tasks):
-    """Sorts tasks by completion, then by priority."""
     return sorted(tasks, key=lambda x: (x['completed'], -get_task_priority(x), x['created_at']))
 
 # --- UI COMPONENT FUNCTIONS ---
 def local_css():
-    """Applies local CSS styles to the Streamlit app."""
     st.markdown("""
     <style>
         body { font-family: 'Inter', sans-serif; }
         #MainMenu, footer { visibility: hidden; }
         .completed-task { text-decoration: line-through; color: #888; }
-        .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
         div.stButton > button { width: 100%; border-radius: 5px; }
         .main .block-container { padding-top: 2rem; }
     </style>
     """, unsafe_html=True)
 
 def initialize_state():
-    """Initializes session state variables for login and selection."""
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'selected_list_id' not in st.session_state:
-        st.session_state.selected_list_id = None
-    if 'db_initialized' not in st.session_state:
-        st.session_state.db_initialized = False
-    if 'editing_task_id' not in st.session_state:
-        st.session_state.editing_task_id = None
+    if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+    if 'selected_list_id' not in st.session_state: st.session_state.selected_list_id = None
+    if 'db_initialized' not in st.session_state: st.session_state.db_initialized = False
+    if 'editing_task_id' not in st.session_state: st.session_state.editing_task_id = None
 
 def login_page():
-    """Displays the login page and handles authentication."""
     st.title("✅ Between")
     st.markdown("Your minimalist to-do list manager.")
     ADMIN_PASSWORD = "admin" 
@@ -191,7 +182,6 @@ def login_page():
                 st.error("Incorrect password")
 
 def main_app_ui():
-    """The main UI of the to-do list application."""
     with st.sidebar:
         st.title("Your Lists")
         with st.expander("➕ Create New List"):
@@ -253,23 +243,23 @@ def main_app_ui():
                         st.rerun()
             else:
                 cols = st.columns([1, 6, 1, 1])
-                completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task['id']}", label_visibility="collapsed")
+                completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task_id}", label_visibility="collapsed")
                 if completed != task['completed']:
-                    db_update_task_completion(task['id'], completed)
+                    db_update_task_completion(task_id, completed)
                     st.rerun()
                 with cols[1]:
                     task_class = "completed-task" if completed else ""
                     priority = "⭐" if task['important'] else ""
                     priority += "🔥" if task['urgent'] else ""
                     deadline = f" (Due: {task['deadline'].strftime('%b %d')})" if task['deadline'] else ""
-                    cols[1].markdown(f'<p class="{task_class}">{priority} {task["text"]}{deadline}</p>', unsafe_html=True)
+                    st.markdown(f'<p class="{task_class}">{priority} {task["text"]}{deadline}</p>', unsafe_html=True)
                 with cols[2]:
                     if st.button("✏️", key=f"edit_task_{task_id}", help="Edit task"):
                         st.session_state.editing_task_id = task_id
                         st.rerun()
                 with cols[3]:
-                    if st.button("❌", key=f"delete_task_{task['id']}", help="Delete task"):
-                        db_delete_task(task['id'])
+                    if st.button("❌", key=f"delete_task_{task_id}", help="Delete task"):
+                        db_delete_task(task_id)
                         st.rerun()
 
 # --- SCRIPT EXECUTION ---
