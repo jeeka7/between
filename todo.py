@@ -159,15 +159,20 @@ def sort_tasks(tasks):
 
 # --- UI COMPONENT FUNCTIONS ---
 def local_css():
-    st.markdown("""
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        #MainMenu, footer { visibility: hidden; }
-        .completed-task { text-decoration: line-through; color: #888; }
-        div.stButton > button { width: 100%; border-radius: 5px; }
-        .main .block-container { padding-top: 2rem; }
-    </style>
-    """, unsafe_html=True)
+    """
+    This function is temporarily disabled to prevent a persistent TypeError
+    in the Streamlit Cloud environment. The app will use default styling.
+    """
+    # st.markdown("""
+    # <style>
+    #     body { font-family: 'Inter', sans-serif; }
+    #     #MainMenu, footer { visibility: hidden; }
+    #     .completed-task { text-decoration: line-through; color: #888; }
+    #     div.stButton > button { width: 100%; border-radius: 5px; }
+    #     .main .block-container { padding-top: 2rem; }
+    # </style>
+    # """, unsafe_html=True)
+    pass
 
 def initialize_state():
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
@@ -196,7 +201,7 @@ def main_app_ui():
                 new_list_name = st.text_input("List Name")
                 new_list_type = st.selectbox("List Type", ["Simple", "Financial"])
                 if st.form_submit_button("Create List") and new_list_name:
-                    db_.create_list(new_list_name, new_list_type)
+                    db_create_list(new_list_name, new_list_type)
                     st.success(f"List '{new_list_name}' created!")
         st.markdown("---")
         sorted_list_items = sort_lists(db_get_all_lists())
