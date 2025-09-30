@@ -60,44 +60,6 @@ def init_db():
         st.stop()
 
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="Between",
-    page_icon="✅",
-    layout="centered",
-    initial_sidebar_state="auto"
-)
-
-# --- CUSTOM CSS FOR MINIMALIST STYLING ---
-def local_css():
-    """Applies local CSS styles to the Streamlit app."""
-    st.markdown("""
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        #MainMenu, footer { visibility: hidden; }
-        .completed-task { text-decoration: line-through; color: #888; }
-        .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
-        div.stButton > button { width: 100%; border-radius: 5px; }
-        .main .block-container { padding-top: 2rem; }
-    </style>
-    """, unsafe_html=True)
-
-local_css()
-
-# --- STATE MANAGEMENT & INITIALIZATION ---
-def initialize_state():
-    """Initializes session state variables for login and selection."""
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'selected_list_id' not in st.session_state:
-        st.session_state.selected_list_id = None
-    if 'db_initialized' not in st.session_state:
-        st.session_state.db_initialized = False
-    if 'editing_task_id' not in st.session_state:
-        st.session_state.editing_task_id = None
-
-initialize_state()
-
 # --- DATABASE CRUD OPERATIONS (LIBSQL) ---
 def db_create_list(name, list_type):
     client = get_turso_client()
@@ -189,7 +151,31 @@ def sort_tasks(tasks):
     """Sorts tasks by completion, then by priority."""
     return sorted(tasks, key=lambda x: (x['completed'], -get_task_priority(x), x['created_at']))
 
-# --- AUTHENTICATION ---
+# --- UI COMPONENT FUNCTIONS ---
+def local_css():
+    """Applies local CSS styles to the Streamlit app."""
+    st.markdown("""
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #MainMenu, footer { visibility: hidden; }
+        .completed-task { text-decoration: line-through; color: #888; }
+        .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
+        div.stButton > button { width: 100%; border-radius: 5px; }
+        .main .block-container { padding-top: 2rem; }
+    </style>
+    """, unsafe_html=True)
+
+def initialize_state():
+    """Initializes session state variables for login and selection."""
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'selected_list_id' not in st.session_state:
+        st.session_state.selected_list_id = None
+    if 'db_initialized' not in st.session_state:
+        st.session_state.db_initialized = False
+    if 'editing_task_id' not in st.session_state:
+        st.session_state.editing_task_id = None
+
 def login_page():
     """Displays the login page and handles authentication."""
     st.title("✅ Between")
@@ -204,8 +190,7 @@ def login_page():
             else:
                 st.error("Incorrect password")
 
-# --- MAIN APPLICATION UI ---
-def main_app():
+def main_app_ui():
     """The main UI of the to-do list application."""
     with st.sidebar:
         st.title("Your Lists")
@@ -287,11 +272,25 @@ def main_app():
                         db_delete_task(task['id'])
                         st.rerun()
 
-# --- ROUTING LOGIC ---
-if not st.session_state.logged_in:
-    login_page()
-else:
-    if not st.session_state.db_initialized:
-        if init_db(): st.session_state.db_initialized = True
-    if st.session_state.db_initialized: main_app()
+def main():
+    """Main function to configure and run the Streamlit app."""
+    st.set_page_config(
+        page_title="Between",
+        page_icon="✅",
+        layout="centered",
+        initial_sidebar_state="auto"
+    )
+    local_css()
+    initialize_state()
+
+    # --- ROUTING LOGIC ---
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        if not st.session_state.db_initialized:
+            if init_db(): st.session_state.db_initialized = True
+        if st.session_state.db_initialized: main_app_ui()
+
+if __name__ == "__main__":
+    main()
 
