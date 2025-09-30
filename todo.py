@@ -8,8 +8,8 @@ from turso_python import TursoClient
 @st.cache_resource
 def get_turso_client():
     """
-    Establishes a cached, single connection to the Turso database.
-    This function is resilient to library version changes by trying both 'url' and 'db_url'.
+    Establishes a cached, single connection to the Turso database using the correct
+    'url' and 'token' arguments.
     """
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
@@ -23,20 +23,12 @@ def get_turso_client():
         url = "libsql" + url[5:]
         
     try:
-        # Try initializing with the 'url' parameter, common in newer versions
-        return TursoClient(url=url, auth_token=auth_token)
-    except TypeError as e:
-        if "unexpected keyword argument 'url'" in str(e):
-            # If 'url' is not accepted, try 'db_url', common in older versions
-            try:
-                return TursoClient(db_url=url, auth_token=auth_token)
-            except Exception as inner_e:
-                st.error(f"Failed to initialize Turso client with fallback 'db_url': {inner_e}")
-                st.stop()
-        else:
-            # Re-raise the error if it's not the one we're looking for
-            st.error(f"An unexpected error occurred during Turso client initialization: {e}")
-            st.stop()
+        # Initialize the client using the documented 'url' and 'token' arguments.
+        return TursoClient(url=url, token=auth_token)
+    except Exception as e:
+        st.error(f"Failed to initialize the Turso client. Please check your credentials and library version. Error: {e}")
+        st.exception(e)
+        st.stop()
 
 
 def _convert_result_to_dicts(result):
