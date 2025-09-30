@@ -1,17 +1,13 @@
 import streamlit as st
 from datetime import datetime, date
 import uuid
-import libsql_client
+import sqld_client
 import os
-import nest_asyncio
-
-# Apply the patch for asyncio to allow nested event loops.
-nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
 @st.cache_resource
 def get_turso_client():
-    """Establishes a cached, single connection to the Turso/libSQL database."""
+    """Establishes a cached, single connection to the Turso database using sqld-client."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -19,12 +15,11 @@ def get_turso_client():
         st.error("Turso database credentials are not configured. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your Streamlit secrets.")
         st.stop()
         
-    # --- FINAL FIX: Force HTTPS connection to avoid asyncio issues ---
-    # The libsql-client library uses a more stable HTTP connection when the URL starts with https.
-    if url.startswith("libsql://"):
-        url = "https" + url[6:]
+    # The sqld-client prefers the libsql:// protocol
+    if url.startswith("https://"):
+        url = "libsql" + url[5:]
         
-    return libsql_client.create_client(url=url, auth_token=auth_token)
+    return sqld_client.Client.from_url(url, auth_token=auth_token)
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
@@ -122,7 +117,12 @@ def initialize_state():
 
 initialize_state()
 
-# --- DATABASE CRUD OPERATIONS (TURSO/LIBSQL) ---
+# --- HELPER TO CONVERT TUPLES TO DICTS ---
+def result_set_to_dicts(rs):
+    """Converts a sqld_client ResultSet to a list of dictionaries."""
+    return [dict(zip(rs.columns, row)) for row in rs]
+
+# --- DATABASE CRUD OPERATIONS (USING SQLD-CLIENT) ---
 
 def db_create_list(name, list_type):
     client = get_turso_client()
@@ -131,7 +131,7 @@ def db_create_list(name, list_type):
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
             [name, list_type, 0, datetime.now().isoformat()]
         )
-    except libsql_client.LibsqlError as e:
+    except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             st.error("A list with this name already exists.")
         else:
@@ -140,26 +140,20 @@ def db_create_list(name, list_type):
 def db_get_all_lists():
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
-    return [
-        {
-            "id": row["id"],
-            "name": row["name"],
-            "type": row["type"],
-            "pinned": bool(row["pinned"]),
-            "created_at": datetime.fromisoformat(row["created_at"])
-        } for row in rs.rows
-    ]
+    lists = result_set_to_dicts(rs)
+    for lst in lists:
+        lst['pinned'] = bool(lst['pinned'])
+        lst['created_at'] = datetime.fromisoformat(lst['created_at'])
+    return lists
 
 def db_get_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists WHERE id = ?", [list_id])
-    if not rs.rows: return None
-    row = rs.rows[0]
-    return {
-        "id": row["id"], "name": row["name"], "type": row["type"],
-        "pinned": bool(row["pinned"]),
-        "created_at": datetime.fromisoformat(row["created_at"])
-    }
+    if not rs: return None
+    lst = result_set_to_dicts(rs)[0]
+    lst['pinned'] = bool(lst['pinned'])
+    lst['created_at'] = datetime.fromisoformat(lst['created_at'])
+    return lst
 
 def db_toggle_pin_list(list_id, current_pin_status):
     client = get_turso_client()
@@ -180,15 +174,14 @@ def db_add_task(list_id, text, deadline, important, urgent):
 def db_get_tasks_for_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", [list_id])
-    return [
-        {
-            "id": row["id"], "list_id": row["list_id"], "text": row["text"],
-            "completed": bool(row["completed"]), "important": bool(row["important"]),
-            "urgent": bool(row["urgent"]),
-            "created_at": datetime.fromisoformat(row["created_at"]),
-            "deadline": date.fromisoformat(row["deadline"]) if row["deadline"] else None
-        } for row in rs.rows
-    ]
+    tasks = result_set_to_dicts(rs)
+    for task in tasks:
+        task['completed'] = bool(task['completed'])
+        task['important'] = bool(task['important'])
+        task['urgent'] = bool(task['urgent'])
+        task['created_at'] = datetime.fromisoformat(task['created_at'])
+        task['deadline'] = date.fromisoformat(task['deadline']) if task['deadline'] else None
+    return tasks
 
 def db_update_task_completion(task_id, completed):
     client = get_turso_client()
