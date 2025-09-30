@@ -3,6 +3,11 @@ from datetime import datetime, date
 import uuid
 import libsql_client
 import os
+import nest_asyncio
+
+# Apply the patch for asyncio to allow nested event loops, which fixes the RuntimeError
+nest_asyncio.apply()
+
 
 # --- DATABASE SETUP ---
 def create_turso_client():
