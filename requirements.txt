@@ -1,3 +1,2 @@
 streamlit
-libsql-client
-nest-asyncio
+turso-python
