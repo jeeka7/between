@@ -19,7 +19,7 @@ def get_turso_client():
     if url.startswith("https://"):
         url = "libsql" + url[5:]
         
-    return TursoClient(db_url=url, auth_token=auth_token)
+    return TursoClient(url=url, auth_token=auth_token)
 
 def _convert_result_to_dicts(result):
     """Helper function to convert Turso query results into a list of dictionaries."""
