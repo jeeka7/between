@@ -1,13 +1,17 @@
 import streamlit as st
 from datetime import datetime, date
 import uuid
-import sqld_client
+import libsql_client
 import os
+import nest_asyncio
+
+# Apply the patch for asyncio to allow nested event loops. This is crucial for compatibility.
+nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
 @st.cache_resource
 def get_turso_client():
-    """Establishes a cached, single connection to the Turso database using sqld-client."""
+    """Establishes a cached, single connection to the Turso/libSQL database."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -15,11 +19,11 @@ def get_turso_client():
         st.error("Turso database credentials are not configured. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your Streamlit secrets.")
         st.stop()
         
-    # The sqld-client prefers the libsql:// protocol
-    if url.startswith("https://"):
-        url = "libsql" + url[5:]
+    # Force an HTTPS connection which is more stable in Streamlit Cloud environments
+    if url.startswith("libsql://"):
+        url = "https" + url[6:]
         
-    return sqld_client.Client.from_url(url, auth_token=auth_token)
+    return libsql_client.create_client(url=url, auth_token=auth_token)
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
@@ -67,40 +71,12 @@ st.set_page_config(
 # --- CUSTOM CSS FOR MINIMALIST STYLING ---
 st.markdown("""
 <style>
-    /* General body styling */
-    body {
-        font-family: 'Inter', sans-serif;
-    }
-
-    /* Hide Streamlit's default header and footer */
-    #MainMenu, footer {
-        visibility: hidden;
-    }
-    
-    /* Style for completed tasks */
-    .completed-task {
-        text-decoration: line-through;
-        color: #888;
-    }
-
-    /* Styling for task containers for a cleaner look */
-    .task-container {
-        border-bottom: 1px solid #eee;
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
-    
-    /* Align buttons and other elements */
-    div.stButton > button {
-        width: 100%;
-        border-radius: 5px;
-    }
-
-    /* Reduce top margin of the main block */
-    .main .block-container {
-        padding-top: 2rem;
-    }
-
+    body { font-family: 'Inter', sans-serif; }
+    #MainMenu, footer { visibility: hidden; }
+    .completed-task { text-decoration: line-through; color: #888; }
+    .task-container { border-bottom: 1px solid #eee; padding-top: 10px; padding-bottom: 10px; }
+    div.stButton > button { width: 100%; border-radius: 5px; }
+    .main .block-container { padding-top: 2rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -117,13 +93,7 @@ def initialize_state():
 
 initialize_state()
 
-# --- HELPER TO CONVERT TUPLES TO DICTS ---
-def result_set_to_dicts(rs):
-    """Converts a sqld_client ResultSet to a list of dictionaries."""
-    return [dict(zip(rs.columns, row)) for row in rs]
-
-# --- DATABASE CRUD OPERATIONS (USING SQLD-CLIENT) ---
-
+# --- DATABASE CRUD OPERATIONS (LIBSQL) ---
 def db_create_list(name, list_type):
     client = get_turso_client()
     try:
@@ -131,7 +101,7 @@ def db_create_list(name, list_type):
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
             [name, list_type, 0, datetime.now().isoformat()]
         )
-    except Exception as e:
+    except libsql_client.LibsqlError as e:
         if "UNIQUE constraint failed" in str(e):
             st.error("A list with this name already exists.")
         else:
@@ -140,20 +110,22 @@ def db_create_list(name, list_type):
 def db_get_all_lists():
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
-    lists = result_set_to_dicts(rs)
-    for lst in lists:
-        lst['pinned'] = bool(lst['pinned'])
-        lst['created_at'] = datetime.fromisoformat(lst['created_at'])
-    return lists
+    return [
+        {
+            "id": row["id"], "name": row["name"], "type": row["type"],
+            "pinned": bool(row["pinned"]), "created_at": datetime.fromisoformat(row["created_at"])
+        } for row in rs.rows
+    ]
 
 def db_get_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists WHERE id = ?", [list_id])
-    if not rs: return None
-    lst = result_set_to_dicts(rs)[0]
-    lst['pinned'] = bool(lst['pinned'])
-    lst['created_at'] = datetime.fromisoformat(lst['created_at'])
-    return lst
+    if not rs.rows: return None
+    row = rs.rows[0]
+    return {
+        "id": row["id"], "name": row["name"], "type": row["type"],
+        "pinned": bool(row["pinned"]), "created_at": datetime.fromisoformat(row["created_at"])
+    }
 
 def db_toggle_pin_list(list_id, current_pin_status):
     client = get_turso_client()
@@ -174,14 +146,14 @@ def db_add_task(list_id, text, deadline, important, urgent):
 def db_get_tasks_for_list(list_id):
     client = get_turso_client()
     rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", [list_id])
-    tasks = result_set_to_dicts(rs)
-    for task in tasks:
-        task['completed'] = bool(task['completed'])
-        task['important'] = bool(task['important'])
-        task['urgent'] = bool(task['urgent'])
-        task['created_at'] = datetime.fromisoformat(task['created_at'])
-        task['deadline'] = date.fromisoformat(task['deadline']) if task['deadline'] else None
-    return tasks
+    return [
+        {
+            "id": row["id"], "list_id": row["list_id"], "text": row["text"],
+            "completed": bool(row["completed"]), "important": bool(row["important"]),
+            "urgent": bool(row["urgent"]), "created_at": datetime.fromisoformat(row["created_at"]),
+            "deadline": date.fromisoformat(row["deadline"]) if row["deadline"] else None
+        } for row in rs.rows
+    ]
 
 def db_update_task_completion(task_id, completed):
     client = get_turso_client()
@@ -191,16 +163,12 @@ def db_delete_task(task_id):
     client = get_turso_client()
     client.execute("DELETE FROM tasks WHERE id = ?", [task_id])
 
-
 # --- HELPER FUNCTIONS ---
 def get_task_priority(task):
     """Calculates a sortable priority score for a task."""
-    if task['important'] and task['urgent']:
-        return 4
-    if task['important']:
-        return 3
-    if task['urgent']:
-        return 2
+    if task['important'] and task['urgent']: return 4
+    if task['important']: return 3
+    if task['urgent']: return 2
     return 1
 
 def sort_lists(lists):
@@ -216,14 +184,10 @@ def login_page():
     """Displays the login page and handles authentication."""
     st.title("✅ Between")
     st.markdown("Your minimalist to-do list manager.")
-
     ADMIN_PASSWORD = "admin" 
-
     with st.form("login_form"):
         password = st.text_input("Admin Password", type="password")
-        submitted = st.form_submit_button("Login")
-
-        if submitted:
+        if st.form_submit_button("Login"):
             if password == ADMIN_PASSWORD:
                 st.session_state.logged_in = True
                 st.rerun()
@@ -233,126 +197,73 @@ def login_page():
 # --- MAIN APPLICATION UI ---
 def main_app():
     """The main UI of the to-do list application."""
-    # --- SIDEBAR FOR LIST MANAGEMENT ---
     with st.sidebar:
         st.title("Your Lists")
-
         with st.expander("➕ Create New List"):
             with st.form("new_list_form", clear_on_submit=True):
                 new_list_name = st.text_input("List Name")
                 new_list_type = st.selectbox("List Type", ["Simple", "Financial"])
-                create_list_submitted = st.form_submit_button("Create List")
-
-                if create_list_submitted and new_list_name:
+                if st.form_submit_button("Create List") and new_list_name:
                     db_create_list(new_list_name, new_list_type)
                     st.success(f"List '{new_list_name}' created!")
-        
         st.markdown("---")
-
-        all_lists = db_get_all_lists()
-        sorted_list_items = sort_lists(all_lists)
+        sorted_list_items = sort_lists(db_get_all_lists())
         if not sorted_list_items:
             st.write("No lists yet. Create one!")
         else:
             for lst in sorted_list_items:
-                list_id = lst['id']
-                icon = "📌" if lst['pinned'] else "📝"
-                
                 col1, col2, col3 = st.columns([5, 1, 1])
-                with col1:
-                    if st.button(f"{icon} {lst['name']}", key=f"select_{list_id}"):
-                        st.session_state.selected_list_id = list_id
-                        st.rerun()
-                with col2:
-                    if st.button("📍", key=f"pin_{list_id}", help="Pin/Unpin list"):
-                        db_toggle_pin_list(list_id, lst['pinned'])
-                        st.rerun()
-                with col3:
-                    if st.button("🗑️", key=f"delete_{list_id}", help="Delete list"):
-                        db_delete_list(list_id)
-                        if st.session_state.selected_list_id == list_id:
-                             st.session_state.selected_list_id = None
-                        st.rerun()
+                if col1.button(f"{'📌' if lst['pinned'] else '📝'} {lst['name']}", key=f"select_{lst['id']}"):
+                    st.session_state.selected_list_id = lst['id']
+                    st.rerun()
+                if col2.button("📍", key=f"pin_{lst['id']}", help="Pin/Unpin list"):
+                    db_toggle_pin_list(lst['id'], lst['pinned'])
+                    st.rerun()
+                if col3.button("🗑️", key=f"delete_{lst['id']}", help="Delete list"):
+                    db_delete_list(lst['id'])
+                    if st.session_state.selected_list_id == lst['id']: st.session_state.selected_list_id = None
+                    st.rerun()
 
-    # --- MAIN PANEL FOR TASK MANAGEMENT ---
     if not st.session_state.selected_list_id:
         st.title("Select a list to get started")
-        st.markdown("Create a new list from the sidebar or click on an existing one.")
     else:
-        current_list_id = st.session_state.selected_list_id
-        current_list = db_get_list(current_list_id)
-
+        current_list = db_get_list(st.session_state.selected_list_id)
         if not current_list:
-             st.error("The selected list could not be found. It may have been deleted.")
-             st.session_state.selected_list_id = None
-             st.rerun()
-             return
-             
+            st.error("The selected list may have been deleted.")
+            st.session_state.selected_list_id = None
+            st.rerun()
         st.header(f"{current_list['name']} ({current_list['type']})")
-        created_date_str = current_list['created_at'].strftime("%b %d, %Y")
-        st.caption(f"Created on: {created_date_str}")
-        
         with st.form("new_task_form", clear_on_submit=True):
-            cols = st.columns([4, 2])
-            with cols[0]:
-                new_task_text = st.text_input("Add a new task...", label_visibility="collapsed")
-            with cols[1]:
-                new_task_deadline = st.date_input("Deadline", value=None)
-
-            priority_cols = st.columns(2)
-            with priority_cols[0]:
-                is_important = st.checkbox("⭐ Important")
-            with priority_cols[1]:
-                is_urgent = st.checkbox("🔥 Urgent")
-
-            add_task_submitted = st.form_submit_button("Add Task")
-            
-            if add_task_submitted and new_task_text:
-                db_add_task(current_list_id, new_task_text, new_task_deadline, is_important, is_urgent)
+            new_task_text = st.text_input("Add a new task...", label_visibility="collapsed")
+            cols = st.columns([2, 1, 1])
+            new_task_deadline = cols[0].date_input("Deadline", value=None)
+            is_important = cols[1].checkbox("⭐ Important")
+            is_urgent = cols[2].checkbox("🔥 Urgent")
+            if st.form_submit_button("Add Task") and new_task_text:
+                db_add_task(current_list['id'], new_task_text, new_task_deadline, is_important, is_urgent)
                 st.rerun()
-
         st.markdown("---")
-
-        tasks = db_get_tasks_for_list(current_list_id)
-        if not tasks:
-            st.info("This list is empty. Add a task to get started!")
-        else:
-            sorted_task_list = sort_tasks(tasks)
-            for task in sorted_task_list:
-                task_id = task['id']
-                with st.container():
-                    st.markdown('<div class="task-container">', unsafe_allow_html=True)
-                    cols = st.columns([1, 6, 1])
-                    
-                    with cols[0]:
-                        is_completed = st.checkbox("", value=task['completed'], key=f"complete_{task_id}", label_visibility="collapsed")
-                        if is_completed != task['completed']:
-                            db_update_task_completion(task_id, is_completed)
-                            st.rerun()
-
-                    with cols[1]:
-                        task_class = "completed-task" if task['completed'] else ""
-                        priority_icons = ""
-                        if task['important']: priority_icons += "⭐"
-                        if task['urgent']: priority_icons += "🔥"
-                        deadline_str = f" (Due: {task['deadline'].strftime('%b %d')})" if task.get('deadline') else ""
-                        st.markdown(f'<p class="{task_class}">{priority_icons} {task["text"]}{deadline_str}</p>', unsafe_html=True)
-
-                    with cols[2]:
-                        if st.button("❌", key=f"delete_task_{task_id}", help="Delete task"):
-                            db_delete_task(task_id)
-                            st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+        sorted_task_list = sort_tasks(db_get_tasks_for_list(current_list['id']))
+        for task in sorted_task_list:
+            cols = st.columns([1, 6, 1])
+            completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task['id']}", label_visibility="collapsed")
+            if completed != task['completed']:
+                db_update_task_completion(task['id'], completed)
+                st.rerun()
+            task_class = "completed-task" if completed else ""
+            priority = "⭐" if task['important'] else ""
+            priority += "🔥" if task['urgent'] else ""
+            deadline = f" (Due: {task['deadline'].strftime('%b %d')})" if task['deadline'] else ""
+            cols[1].markdown(f'<p class="{task_class}">{priority} {task["text"]}{deadline}</p>', unsafe_html=True)
+            if cols[2].button("❌", key=f"delete_task_{task['id']}", help="Delete task"):
+                db_delete_task(task['id'])
+                st.rerun()
 
 # --- ROUTING LOGIC ---
 if not st.session_state.logged_in:
     login_page()
 else:
-    # Initialize DB only after login and only once per session
     if not st.session_state.db_initialized:
-        if init_db():
-            st.session_state.db_initialized = True
-    
-    if st.session_state.db_initialized:
-        main_app()
+        if init_db(): st.session_state.db_initialized = True
+    if st.session_state.db_initialized: main_app()
 
