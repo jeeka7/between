@@ -9,7 +9,7 @@ from turso_python import TursoClient
 def get_turso_client():
     """
     Establishes a cached, single connection to the Turso database using the correct
-    'url' and 'token' arguments.
+    'uri' and 'token' arguments.
     """
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
@@ -23,8 +23,8 @@ def get_turso_client():
         url = "libsql" + url[5:]
         
     try:
-        # Initialize the client using the documented 'url' and 'token' arguments.
-        return TursoClient(url=url, token=auth_token)
+        # Initialize the client using the documented 'uri' and 'token' arguments.
+        return TursoClient(uri=url, token=auth_token)
     except Exception as e:
         st.error(f"Failed to initialize the Turso client. Please check your credentials and library version. Error: {e}")
         st.exception(e)
