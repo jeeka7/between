@@ -43,7 +43,7 @@ def init_db():
     try:
         client = get_turso_client()
         # The new client does not support batching in the same way, so we execute statements individually.
-        client.execute(
+        client.execute_sql(
             """
             CREATE TABLE IF NOT EXISTS lists (
                 id INTEGER PRIMARY KEY,
@@ -54,7 +54,7 @@ def init_db():
             )
             """
         )
-        client.execute(
+        client.execute_sql(
             """
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
@@ -79,7 +79,7 @@ def init_db():
 def db_create_list(name, list_type):
     client = get_turso_client()
     try:
-        client.execute(
+        client.execute_sql(
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
             (name, list_type, 0, datetime.now().isoformat())
         )
@@ -91,7 +91,7 @@ def db_create_list(name, list_type):
 
 def db_get_all_lists():
     client = get_turso_client()
-    rs = client.execute("SELECT * FROM lists")
+    rs = client.execute_sql("SELECT * FROM lists")
     lists = _convert_result_to_dicts(rs)
     for lst in lists:
         lst['pinned'] = bool(lst['pinned'])
@@ -100,7 +100,7 @@ def db_get_all_lists():
 
 def db_get_list(list_id):
     client = get_turso_client()
-    rs = client.execute("SELECT * FROM lists WHERE id = ?", (list_id,))
+    rs = client.execute_sql("SELECT * FROM lists WHERE id = ?", (list_id,))
     lists = _convert_result_to_dicts(rs)
     if not lists: return None
     lst = lists[0]
@@ -110,23 +110,23 @@ def db_get_list(list_id):
 
 def db_toggle_pin_list(list_id, current_pin_status):
     client = get_turso_client()
-    client.execute("UPDATE lists SET pinned = ? WHERE id = ?", (int(not current_pin_status), list_id))
+    client.execute_sql("UPDATE lists SET pinned = ? WHERE id = ?", (int(not current_pin_status), list_id))
 
 def db_delete_list(list_id):
     client = get_turso_client()
-    client.execute("DELETE FROM lists WHERE id = ?", (list_id,))
+    client.execute_sql("DELETE FROM lists WHERE id = ?", (list_id,))
 
 def db_add_task(list_id, text, deadline, important, urgent):
     deadline_str = deadline.isoformat() if deadline else None
     client = get_turso_client()
-    client.execute(
+    client.execute_sql(
         "INSERT INTO tasks (id, list_id, text, completed, important, urgent, created_at, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str)
     )
     
 def db_get_tasks_for_list(list_id):
     client = get_turso_client()
-    rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", (list_id,))
+    rs = client.execute_sql("SELECT * FROM tasks WHERE list_id = ?", (list_id,))
     tasks = _convert_result_to_dicts(rs)
     for task in tasks:
         task['completed'] = bool(task['completed'])
@@ -138,15 +138,15 @@ def db_get_tasks_for_list(list_id):
 
 def db_update_task_completion(task_id, completed):
     client = get_turso_client()
-    client.execute("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
+    client.execute_sql("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
 
 def db_delete_task(task_id):
     client = get_turso_client()
-    client.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    client.execute_sql("DELETE FROM tasks WHERE id = ?", (task_id,))
 
 def db_update_task_text(task_id, new_text):
     client = get_turso_client()
-    client.execute("UPDATE tasks SET text = ? WHERE id = ?", (new_text, task_id))
+    client.execute_sql("UPDATE tasks SET text = ? WHERE id = ?", (new_text, task_id))
 
 # --- HELPER FUNCTIONS ---
 def get_task_priority(task):
@@ -259,7 +259,7 @@ def main_app_ui():
                 cols = st.columns([1, 6, 1, 1])
                 completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task_id}", label_visibility="collapsed")
                 if completed != task['completed']:
-                    db_update__task_completion(task_id, completed)
+                    db_update_task_completion(task_id, completed)
                     st.rerun()
                 with cols[1]:
                     task_class = "completed-task" if completed else ""
