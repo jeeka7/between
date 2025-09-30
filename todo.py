@@ -8,8 +8,8 @@ from turso_python import TursoClient
 @st.cache_resource
 def get_turso_client():
     """
-    Establishes a cached, single connection to the Turso database using the correct
-    'uri' and 'token' arguments.
+    Establishes a cached, single connection to the Turso database using positional arguments
+    to avoid issues with changing keyword argument names across library versions.
     """
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
@@ -23,10 +23,11 @@ def get_turso_client():
         url = "libsql" + url[5:]
         
     try:
-        # Initialize the client using the documented 'uri' and 'token' arguments.
-        return TursoClient(uri=url, token=auth_token)
+        # Initialize the client using positional arguments (url, token).
+        # This is more resilient to keyword name changes between library versions.
+        return TursoClient(url, auth_token)
     except Exception as e:
-        st.error(f"Failed to initialize the Turso client. Please check your credentials and library version. Error: {e}")
+        st.error(f"Failed to initialize the Turso client. Please check your credentials. Error: {e}")
         st.exception(e)
         st.stop()
 
@@ -258,7 +259,7 @@ def main_app_ui():
                 cols = st.columns([1, 6, 1, 1])
                 completed = cols[0].checkbox("", value=task['completed'], key=f"complete_{task_id}", label_visibility="collapsed")
                 if completed != task['completed']:
-                    db_update_task_completion(task_id, completed)
+                    db_update__task_completion(task_id, completed)
                     st.rerun()
                 with cols[1]:
                     task_class = "completed-task" if completed else ""
