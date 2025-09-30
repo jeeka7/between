@@ -8,6 +8,10 @@ import nest_asyncio
 # Apply the patch for asyncio to allow nested event loops, which fixes the RuntimeError
 nest_asyncio.apply()
 
+# --- VERSION CANARY ---
+# This line helps us confirm that the latest code is running.
+st.info("App version: 2.1 - Python 3.11 Test")
+
 
 # --- DATABASE SETUP ---
 def create_turso_client():
@@ -349,4 +353,5 @@ if not st.session_state.logged_in:
     login_page()
 else:
     main_app()
+
 
