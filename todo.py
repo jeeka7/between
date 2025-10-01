@@ -33,10 +33,11 @@ def get_turso_client():
 def _convert_result_to_dicts(result):
     """
     Helper function to convert Turso query results into a list of dictionaries.
-    This version gracefully handles empty results from the database.
+    This version gracefully handles empty results which may lack the .rows attribute.
     """
-    if not result.rows:
+    if not hasattr(result, 'rows') or not result.rows:
         return []
+        
     columns = result.columns
     return [dict(zip(columns, row)) for row in result.rows]
 
@@ -193,6 +194,7 @@ def main_app_ui():
                 if st.form_submit_button("Create List") and new_list_name:
                     db_create_list(new_list_name, new_list_type)
                     st.success(f"List '{new_list_name}' created!")
+                    st.rerun()
         st.markdown("---")
         sorted_list_items = sort_lists(db_get_all_lists())
         if not sorted_list_items:
@@ -261,7 +263,7 @@ def main_app_ui():
                         st.rerun()
                 with cols[3]:
                     if st.button("❌", key=f"delete_task_{task_id}", help="Delete task"):
-                        db_delete_task(task_id)
+                        db_delete__task(task_id)
                         st.rerun()
 
 # --- SCRIPT EXECUTION ---
