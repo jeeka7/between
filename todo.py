@@ -9,7 +9,7 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
-@st.cache_resource
+# @st.cache_resource has been removed to prevent stale data from being shown.
 def get_turso_client():
     """Establishes a cached, single connection to the Turso/libSQL database."""
     url = st.secrets.get("TURSO_DATABASE_URL")
@@ -263,7 +263,7 @@ def main_app_ui():
                         st.rerun()
                 with cols[3]:
                     if st.button("❌", key=f"delete_task_{task_id}", help="Delete task"):
-                        db_delete__task(task_id)
+                        db_delete_task(task_id)
                         st.rerun()
 
 # --- SCRIPT EXECUTION ---
