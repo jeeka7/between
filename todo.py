@@ -133,9 +133,7 @@ def update_todo_list(list_id, name, list_type):
 
 def delete_todo_list(list_id):
     """Delete a todo list and its tasks"""
-    # First delete all tasks in the list
     execute_sql("DELETE FROM tasks WHERE list_id = ?", [list_id])
-    # Then delete the list
     sql = "DELETE FROM todo_lists WHERE id = ?"
     result = execute_sql(sql, [list_id])
     return result is not None
@@ -169,25 +167,28 @@ def delete_task(task_id):
 initialize_database()
 
 # Streamlit UI
-st.title("📝 Advanced Todo App with Turso")
+st.set_page_config(page_title="Advanced Todo App", page_icon="✅", layout="wide")
+
+st.title("✅ Advanced Todo App with Turso")
 st.markdown("Manage multiple todo lists with different types and priority tasks")
 
 # Sidebar for Todo Lists Management
 with st.sidebar:
-    st.header("📋 Todo Lists")
+    st.header("📋 Todo Lists Management")
     
     # Create new todo list
-    with st.expander("➕ Create New List", expanded=True):
+    with st.expander("➕ Create New Todo List", expanded=True):
         with st.form("create_list_form"):
-            list_name = st.text_input("List Name")
-            list_type = st.selectbox("List Type", ["simple", "financial"])
-            submitted = st.form_submit_button("Create List")
+            list_name = st.text_input("List Name", placeholder="Enter list name...")
+            list_type = st.selectbox("List Type", ["simple", "financial"], 
+                                   help="Simple: General tasks, Financial: Money-related tasks")
+            submitted = st.form_submit_button("Create Todo List")
             if submitted and list_name:
                 if create_todo_list(list_name, list_type):
-                    st.success(f"Created: {list_name}")
+                    st.success(f"✅ Created: {list_name}")
                     st.rerun()
                 else:
-                    st.error("Failed to create list")
+                    st.error("❌ Failed to create list")
     
     st.markdown("---")
     
@@ -195,62 +196,73 @@ with st.sidebar:
     todo_lists = get_todo_lists()
     
     if not todo_lists:
-        st.info("No todo lists yet. Create one above!")
+        st.info("📝 No todo lists yet. Create your first one above!")
     else:
-        st.subheader("Your Lists")
+        st.subheader("Your Todo Lists")
         
         for todo_list in todo_lists:
-            col1, col2 = st.columns([3, 1])
+            # List header with delete button
+            col1, col2 = st.columns([4, 1])
             
             with col1:
                 list_type_icon = "💰" if todo_list['list_type'] == 'financial' else "📝"
-                st.write(f"{list_type_icon} {todo_list['name']}")
+                st.write(f"**{list_type_icon} {todo_list['name']}**")
+                st.caption(f"Type: {todo_list['list_type'].title()}")
             
             with col2:
-                if st.button("🗑️", key=f"del_list_{todo_list['id']}"):
+                if st.button("🗑️", key=f"del_list_{todo_list['id']}", help="Delete this list and all its tasks"):
                     if delete_todo_list(todo_list['id']):
-                        st.success("List deleted!")
+                        st.success("🗑️ List deleted!")
                         st.rerun()
             
-            # Edit list
-            with st.expander(f"Edit {todo_list['name']}"):
+            # Edit list section
+            with st.expander(f"✏️ Edit {todo_list['name']}", expanded=False):
                 with st.form(f"edit_list_{todo_list['id']}"):
-                    new_name = st.text_input("Name", value=todo_list['name'])
+                    new_name = st.text_input("List Name", value=todo_list['name'])
                     new_type = st.selectbox(
-                        "Type", 
+                        "List Type", 
                         ["simple", "financial"],
                         index=0 if todo_list['list_type'] == 'simple' else 1,
                         key=f"type_{todo_list['id']}"
                     )
-                    if st.form_submit_button("Update List"):
+                    if st.form_submit_button("💾 Update List"):
                         if update_todo_list(todo_list['id'], new_name, new_type):
-                            st.success("List updated!")
+                            st.success("✅ List updated!")
                             st.rerun()
+            
+            st.markdown("---")
 
 # Main content area for tasks
-st.header("✅ Tasks")
+st.header("📝 Tasks Management")
 
 # Get selected list from URL params or use first list
 todo_lists = get_todo_lists()
 if todo_lists:
     # Create tabs for each todo list
-    tabs = st.tabs([f"{'💰' if lst['list_type'] == 'financial' else '📝'} {lst['name']}" 
-                   for lst in todo_lists])
+    tab_titles = [f"{'💰' if lst['list_type'] == 'financial' else '📝'} {lst['name']}" 
+                  for lst in todo_lists]
+    
+    tabs = st.tabs(tab_titles)
     
     for i, (tab, todo_list) in enumerate(zip(tabs, todo_lists)):
         with tab:
+            st.subheader(f"Tasks in {todo_list['name']}")
+            
             # Add new task to this list
             with st.form(f"add_task_{todo_list['id']}"):
-                col1, col2 = st.columns([3, 1])
+                st.write("**Add New Task**")
+                col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
-                    new_task = st.text_input("New Task", key=f"task_{todo_list['id']}")
+                    new_task = st.text_input("Task description", placeholder="Enter your task...", 
+                                           key=f"task_{todo_list['id']}", label_visibility="collapsed")
                 with col2:
-                    important = st.checkbox("⭐", key=f"imp_{todo_list['id']}")
-                    urgent = st.checkbox("🚨", key=f"urg_{todo_list['id']}")
+                    important = st.checkbox("⭐ Important", key=f"imp_{todo_list['id']}")
+                with col3:
+                    urgent = st.checkbox("🚨 Urgent", key=f"urg_{todo_list['id']}")
                 
-                if st.form_submit_button("Add Task") and new_task:
+                if st.form_submit_button("➕ Add Task") and new_task:
                     if add_task(todo_list['id'], new_task, important, urgent):
-                        st.success("Task added!")
+                        st.success("✅ Task added!")
                         st.rerun()
             
             st.markdown("---")
@@ -259,55 +271,72 @@ if todo_lists:
             tasks = get_tasks(todo_list['id'])
             
             if not tasks:
-                st.info("No tasks in this list yet. Add one above!")
+                st.info(f"📝 No tasks in '{todo_list['name']}' yet. Add your first task above!")
             else:
-                # Sort tasks: important/urgent first
-                sorted_tasks = sorted(tasks, key=lambda x: (not x.get('important', 0), not x.get('urgent', 0)))
+                # Sort tasks: important/urgent first, then by creation date
+                sorted_tasks = sorted(tasks, key=lambda x: (
+                    not x.get('important', 0), 
+                    not x.get('urgent', 0), 
+                    x.get('created_at', '')
+                ), reverse=True)
+                
+                st.write(f"**Total tasks: {len(tasks)}**")
                 
                 for task in sorted_tasks:
-                    col1, col2, col3, col4 = st.columns([1, 6, 2, 1])
-                    
-                    with col1:
-                        completed_bool = bool(task.get('completed', 0))
-                        completed = st.checkbox(
-                            "",
-                            value=completed_bool,
-                            key=f"check_{task['id']}",
-                            on_change=toggle_task_completion,
-                            args=(task['id'], not completed_bool)
-                        )
-                    
-                    with col2:
-                        task_text = task['task']
-                        if task.get('important'):
-                            task_text = f"⭐ {task_text}"
-                        if task.get('urgent'):
-                            task_text = f"🚨 {task_text}"
+                    # Task card
+                    with st.container():
+                        col1, col2, col3, col4 = st.columns([1, 6, 2, 1])
                         
-                        if task.get('completed'):
-                            st.markdown(f"~~{task_text}~~")
-                        else:
-                            st.write(task_text)
-                    
-                    with col3:
-                        # Edit task
-                        with st.expander("✏️"):
-                            with st.form(f"edit_task_{task['id']}"):
-                                edit_task = st.text_input("Task", value=task['task'])
-                                edit_important = st.checkbox("Important", value=bool(task.get('important', 0)))
-                                edit_urgent = st.checkbox("Urgent", value=bool(task.get('urgent', 0)))
-                                if st.form_submit_button("Update"):
-                                    if update_task(task['id'], edit_task, edit_important, edit_urgent):
-                                        st.success("Task updated!")
-                                        st.rerun()
-                    
-                    with col4:
-                        if st.button("🗑️", key=f"del_task_{task['id']}"):
-                            if delete_task(task['id']):
-                                st.success("Task deleted!")
-                                st.rerun()
+                        with col1:
+                            completed_bool = bool(task.get('completed', 0))
+                            completed = st.checkbox(
+                                "",
+                                value=completed_bool,
+                                key=f"check_{task['id']}",
+                                on_change=toggle_task_completion,
+                                args=(task['id'], not completed_bool),
+                                label_visibility="collapsed"
+                            )
+                        
+                        with col2:
+                            task_text = task['task']
+                            priority_icons = ""
+                            if task.get('important'):
+                                priority_icons += "⭐ "
+                            if task.get('urgent'):
+                                priority_icons += "🚨 "
+                            
+                            if task.get('completed'):
+                                st.markdown(f"~~{priority_icons}{task_text}~~")
+                                st.caption("✅ Completed")
+                            else:
+                                st.write(f"{priority_icons}**{task_text}**")
+                        
+                        with col3:
+                            # Edit task
+                            with st.expander("✏️ Edit", expanded=False):
+                                with st.form(f"edit_task_{task['id']}"):
+                                    edit_task = st.text_input("Task Description", value=task['task'])
+                                    col_edit1, col_edit2 = st.columns(2)
+                                    with col_edit1:
+                                        edit_important = st.checkbox("Important", value=bool(task.get('important', 0)), key=f"edit_imp_{task['id']}")
+                                    with col_edit2:
+                                        edit_urgent = st.checkbox("Urgent", value=bool(task.get('urgent', 0)), key=f"edit_urg_{task['id']}")
+                                    if st.form_submit_button("💾 Update Task"):
+                                        if update_task(task['id'], edit_task, edit_important, edit_urgent):
+                                            st.success("✅ Task updated!")
+                                            st.rerun()
+                        
+                        with col4:
+                            if st.button("🗑️", key=f"del_task_{task['id']}", help="Delete this task"):
+                                if delete_task(task['id']):
+                                    st.success("🗑️ Task deleted!")
+                                    st.rerun()
+                        
+                        st.markdown("---")
 else:
-    st.info("👈 Create your first todo list using the sidebar!")
+    st.info("👈 **Welcome!** Start by creating your first todo list using the sidebar on the left.")
 
+# Footer
 st.markdown("---")
 st.markdown("Built with ❤️ using Streamlit + Turso")
