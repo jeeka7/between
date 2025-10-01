@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import os
+import json
 
 # Your actual Turso credentials
 TURSO_DB_URL = "https://betweentodo-deanhunter7.aws-ap-south-1.turso.io"
@@ -11,15 +12,31 @@ headers = {
     'Content-Type': 'application/json'
 }
 
+def format_value(value):
+    """Format values for Turso API - they need explicit types"""
+    if isinstance(value, str):
+        return {"type": "text", "value": value}
+    elif isinstance(value, bool):
+        return {"type": "integer", "value": 1 if value else 0}
+    elif isinstance(value, int):
+        return {"type": "integer", "value": value}
+    elif value is None:
+        return {"type": "null"}
+    else:
+        return {"type": "text", "value": str(value)}
+
 def execute_sql(sql, params=None):
     """Execute SQL query against Turso database"""
     try:
+        # Format parameters with proper types
+        formatted_args = [format_value(param) for param in params] if params else []
+        
         request_data = {
             "requests": [{
                 "type": "execute",
                 "stmt": {
                     "sql": sql,
-                    "args": params if params else []
+                    "args": formatted_args
                 }
             }]
         }
@@ -85,7 +102,9 @@ def add_todo(task):
 def toggle_todo(todo_id, completed):
     """Toggle todo completion status"""
     sql = "UPDATE todos SET completed = ? WHERE id = ?"
-    result = execute_sql(sql, [completed, todo_id])
+    # Convert boolean to integer (SQLite stores as 0/1)
+    completed_int = 1 if completed else 0
+    result = execute_sql(sql, [completed_int, todo_id])
     return result is not None
 
 def delete_todo(todo_id):
@@ -158,6 +177,12 @@ with st.expander("🔧 Debug Info"):
         test_result = execute_sql("SELECT name FROM sqlite_master WHERE type='table';")
         st.write("Tables in database:")
         st.json(parse_rows(test_result))
+        
+    if st.button("Test Add Todo"):
+        # Test with a simple task
+        test_result = execute_sql("INSERT INTO todos (task) VALUES (?)", ["Test task"])
+        st.write("Test insert result:")
+        st.json(test_result)
 
 st.markdown("---")
 st.markdown("Built with ❤️ using Streamlit + Turso")
