@@ -32,12 +32,13 @@ def get_turso_client():
 
 def _convert_result_to_dicts(result):
     """
-    Helper function to convert Turso query results into a list of dictionaries
-    by combining column names with row values. This is the most robust method.
+    Helper function to convert Turso query results into a list of dictionaries.
+    This version gracefully handles empty results from the database.
     """
+    if not result.rows:
+        return []
     columns = result.columns
-    rows = result.rows
-    return [dict(zip(columns, row)) for row in rows]
+    return [dict(zip(columns, row)) for row in result.rows]
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
@@ -161,20 +162,16 @@ def sort_tasks(tasks):
 
 # --- UI COMPONENT FUNCTIONS ---
 def local_css():
-    """
-    This function is temporarily disabled to prevent a persistent TypeError
-    in the Streamlit Cloud environment. The app will use default styling.
-    """
-    # st.markdown("""
-    # <style>
-    #     body { font-family: 'Inter', sans-serif; }
-    #     #MainMenu, footer { visibility: hidden; }
-    #     .completed-task { text-decoration: line-through; color: #888; }
-    #     div.stButton > button { width: 100%; border-radius: 5px; }
-    #     .main .block-container { padding-top: 2rem; }
-    # </style>
-    # """, unsafe_html=True)
-    pass
+    """Applies custom CSS for a minimalist look and feel."""
+    st.markdown("""
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #MainMenu, footer { visibility: hidden; }
+        .completed-task { text-decoration: line-through; color: #888; }
+        div.stButton > button { width: 100%; border-radius: 5px; }
+        .main .block-container { padding-top: 2rem; }
+    </style>
+    """, unsafe_html=True)
 
 def initialize_state():
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
