@@ -161,18 +161,6 @@ def sort_tasks(tasks):
     return sorted(tasks, key=lambda x: (x['completed'], -get_task_priority(x), x['created_at']))
 
 # --- UI COMPONENT FUNCTIONS ---
-def local_css():
-    """Applies custom CSS for a minimalist look and feel."""
-    st.markdown("""
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        #MainMenu, footer { visibility: hidden; }
-        .completed-task { text-decoration: line-through; color: #888; }
-        div.stButton > button { width: 100%; border-radius: 5px; }
-        .main .block-container { padding-top: 2rem; }
-    </style>
-    """, unsafe_html=True)
-
 def initialize_state():
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     if 'selected_list_id' not in st.session_state: st.session_state.selected_list_id = None
@@ -193,6 +181,13 @@ def login_page():
                 st.error("Incorrect password")
 
 def main_app_ui():
+    st.markdown("""
+    <style>
+        #MainMenu, footer { visibility: hidden; }
+        .completed-task { text-decoration: line-through; color: #888; }
+    </style>
+    """, unsafe_html=True)
+
     with st.sidebar:
         st.title("Your Lists")
         with st.expander("➕ Create New List"):
@@ -280,7 +275,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="auto"
 )
-local_css()
 initialize_state()
 
 # --- ROUTING LOGIC ---
