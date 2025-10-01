@@ -1,5 +1,5 @@
 import streamlit as st
-from libsql_experimental import create_client
+import libsql
 from datetime import date
 import uuid  # For unique keys in dynamic elements
 
@@ -20,10 +20,11 @@ st.markdown("""
 def init_db():
     db_url = st.secrets["turso"]["url"]
     auth_token = st.secrets["turso"]["token"]
-    client = create_client(url=db_url, auth_token=auth_token)
+    conn = libsql.connect("between.db", sync_url=db_url, auth_token=auth_token)
+    conn.sync()  # Initial sync
     
     # Create tables if not exist
-    client.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS lists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -33,7 +34,7 @@ def init_db():
             pinned INTEGER DEFAULT 0
         )
     """)
-    client.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             list_id INTEGER NOT NULL,
@@ -44,9 +45,8 @@ def init_db():
             FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
         )
     """)
-    return client
-
-client = init_db()
+    conn.sync()  # Sync schema changes
+    return conn
 
 # Session state for login
 if 'logged_in' not in st.session_state:
@@ -71,14 +71,14 @@ if not st.session_state.logged_in:
 
 # Main app (after login)
 st.title("📝 Between")
-client = init_db()  # Re-init post-login
+conn = init_db()  # Re-init post-login
 
 # Sidebar: Lists overview
 st.sidebar.title("📋 Lists")
 st.sidebar.markdown("---")
 
 # Fetch lists (pinned first, then by creation date)
-cur = client.execute("SELECT * FROM lists ORDER BY pinned DESC, creation_date ASC")
+cur = conn.execute("SELECT * FROM lists ORDER BY pinned DESC, creation_date ASC")
 lists_data = cur.fetchall()
 list_dict = {row[1]: row[0] for row in lists_data}  # name: id
 
@@ -111,7 +111,7 @@ if lists_data:
         st.markdown("---")
         
         # Fetch and display tasks (sorted: important+urgent > important > urgent > none)
-        cur_tasks = client.execute(
+        cur_tasks = conn.execute(
             "SELECT * FROM tasks WHERE list_id = ? ORDER BY (important + urgent) DESC, important DESC, urgent DESC, id ASC",
             [list_id]
         )
@@ -131,14 +131,16 @@ if lists_data:
                 completed = st.checkbox("✓", value=bool(task[6]), key=f"{key_prefix}_comp")
             with col5:
                 if st.button("💾", key=f"{key_prefix}_update", use_container_width=True):
-                    client.execute(
+                    conn.execute(
                         "UPDATE tasks SET task_text = ?, important = ?, urgent = ?, completed = ? WHERE id = ?",
                         [edited_text, int(important), int(urgent), int(completed), task[0]]
                     )
+                    conn.sync()
                     st.success("Updated!")
                     st.rerun()
                 if st.button("🗑️", key=f"{key_prefix}_delete", use_container_width=True):
-                    client.execute("DELETE FROM tasks WHERE id = ?", [task[0]])
+                    conn.execute("DELETE FROM tasks WHERE id = ?", [task[0]])
+                    conn.sync()
                     st.success("Deleted!")
                     st.rerun()
         
@@ -153,10 +155,11 @@ if lists_data:
                 new_urgent = st.checkbox("Urgent (⚡)")
             add_btn = st.form_submit_button("Add Task", use_container_width=True)
             if add_btn and new_text.strip():
-                client.execute(
+                conn.execute(
                     "INSERT INTO tasks (list_id, task_text, important, urgent) VALUES (?, ?, ?, ?)",
                     [list_id, new_text, int(new_important), int(new_urgent)]
                 )
+                conn.sync()
                 st.success("Task added!")
                 st.rerun()
     
@@ -170,11 +173,13 @@ if lists_data:
                 current_pin = st.checkbox("📌 Pin", value=bool(lst[5]), key=f"pin_{lst[0]}")
             with col_m3:
                 if st.button("🗑️", key=f"del_lst_{lst[0]}"):
-                    client.execute("DELETE FROM lists WHERE id = ?", [lst[0]])
+                    conn.execute("DELETE FROM lists WHERE id = ?", [lst[0]])
+                    conn.sync()
                     st.success(f"Deleted {lst[1]}")
                     st.rerun()
             if st.button("Update", key=f"up_pin_{lst[0]}", use_container_width=True):
-                client.execute("UPDATE lists SET pinned = ? WHERE id = ?", [int(current_pin), lst[0]])
+                conn.execute("UPDATE lists SET pinned = ? WHERE id = ?", [int(current_pin), lst[0]])
+                conn.sync()
                 st.success("Pinned updated!")
                 st.rerun()
         st.markdown("---")
@@ -192,10 +197,11 @@ with st.sidebar.form("new_list", clear_on_submit=True):
     if create_btn and new_name.strip():
         today = date.today().isoformat()
         try:
-            client.execute(
+            conn.execute(
                 "INSERT INTO lists (name, type, creation_date, deadline_date, pinned) VALUES (?, ?, ?, ?, 0)",
                 [new_name, list_type, today, deadline.isoformat() if deadline else None]
             )
+            conn.sync()
             st.sidebar.success("List created!")
             st.rerun()
         except Exception as e:
