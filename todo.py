@@ -32,21 +32,12 @@ def get_turso_client():
 
 def _convert_result_to_dicts(result):
     """
-    Helper function to convert Turso query results into a list of dictionaries.
-    This version includes a fallback to handle library inconsistencies.
+    Helper function to convert Turso query results into a list of dictionaries
+    by combining column names with row values. This is the most robust method.
     """
-    try:
-        # Standard method: using .columns and .rows attributes.
-        columns = result.columns
-        rows = result.rows
-        return [dict(zip(columns, row)) for row in rows]
-    except AttributeError:
-        # Fallback method: if the result is directly iterable (for different library versions).
-        try:
-            return [dict(row) for row in result]
-        except TypeError:
-            st.error("Fatal Error: Could not parse database results due to an unexpected format.")
-            return []
+    columns = result.columns
+    rows = result.rows
+    return [dict(zip(columns, row)) for row in rows]
 
 def init_db():
     """Initializes the database and creates tables if they don't exist."""
