@@ -1,2 +1,3 @@
 streamlit>=1.28.0
-requests>=2.31.0
+libsql-client>=0.1.0
+python-dateutil>=2.8.2
