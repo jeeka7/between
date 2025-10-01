@@ -181,12 +181,8 @@ def login_page():
                 st.error("Incorrect password")
 
 def main_app_ui():
-    st.markdown("""
-    <style>
-        #MainMenu, footer { visibility: hidden; }
-        .completed-task { text-decoration: line-through; color: #888; }
-    </style>
-    """, unsafe_html=True)
+    # The custom CSS has been removed to prevent the TypeError.
+    # The app will now use default Streamlit styling.
 
     with st.sidebar:
         st.title("Your Lists")
