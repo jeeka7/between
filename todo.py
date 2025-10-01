@@ -9,9 +9,9 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # --- DATABASE SETUP ---
-@st.cache_resource
+# The @st.cache_resource decorator has been removed to prevent stale data issues.
 def get_turso_client():
-    """Establishes a cached, single connection to the Turso/libSQL database."""
+    """Establishes a connection to the Turso/libSQL database."""
     url = st.secrets.get("TURSO_DATABASE_URL")
     auth_token = st.secrets.get("TURSO_AUTH_TOKEN")
     
@@ -83,17 +83,14 @@ def db_create_list(name, list_type):
             "INSERT INTO lists (name, type, pinned, created_at) VALUES (?, ?, ?, ?)",
             (name, list_type, 0, datetime.now().isoformat())
         )
-        # Clear the data cache whenever a list is created
-        st.cache_data.clear()
     except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             st.error("A list with this name already exists.")
         else:
             st.error(f"Database error: {e}")
 
-@st.cache_data
 def db_get_all_lists():
-    """Gets all lists from the database. Cached for performance."""
+    """Gets all lists from the database."""
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists")
     lists = _convert_result_to_dicts(rs)
@@ -102,9 +99,8 @@ def db_get_all_lists():
         lst['created_at'] = datetime.fromisoformat(lst['created_at'])
     return lists
 
-@st.cache_data
 def db_get_list(list_id):
-    """Gets a single list by its ID. Cached for performance."""
+    """Gets a single list by its ID."""
     client = get_turso_client()
     rs = client.execute("SELECT * FROM lists WHERE id = ?", (list_id,))
     lists = _convert_result_to_dicts(rs)
@@ -117,12 +113,10 @@ def db_get_list(list_id):
 def db_toggle_pin_list(list_id, current_pin_status):
     client = get_turso_client()
     client.execute("UPDATE lists SET pinned = ? WHERE id = ?", (int(not current_pin_status), list_id))
-    st.cache_data.clear()
 
 def db_delete_list(list_id):
     client = get_turso_client()
     client.execute("DELETE FROM lists WHERE id = ?", (list_id,))
-    st.cache_data.clear()
 
 def db_add_task(list_id, text, deadline, important, urgent):
     deadline_str = deadline.isoformat() if deadline else None
@@ -131,11 +125,9 @@ def db_add_task(list_id, text, deadline, important, urgent):
         "INSERT INTO tasks (id, list_id, text, completed, important, urgent, created_at, deadline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), list_id, text, 0, int(important), int(urgent), datetime.now().isoformat(), deadline_str)
     )
-    st.cache_data.clear()
     
-@st.cache_data
 def db_get_tasks_for_list(list_id):
-    """Gets all tasks for a specific list. Cached for performance."""
+    """Gets all tasks for a specific list."""
     client = get_turso_client()
     rs = client.execute("SELECT * FROM tasks WHERE list_id = ?", (list_id,))
     tasks = _convert_result_to_dicts(rs)
@@ -150,17 +142,14 @@ def db_get_tasks_for_list(list_id):
 def db_update_task_completion(task_id, completed):
     client = get_turso_client()
     client.execute("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
-    st.cache_data.clear()
 
 def db_delete_task(task_id):
     client = get_turso_client()
     client.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    st.cache_data.clear()
 
 def db_update_task_text(task_id, new_text):
     client = get_turso_client()
     client.execute("UPDATE tasks SET text = ? WHERE id = ?", (new_text, task_id))
-    st.cache_data.clear()
 
 # --- HELPER FUNCTIONS ---
 def get_task_priority(task):
