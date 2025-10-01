@@ -3,7 +3,7 @@ import requests
 import os
 
 # Turso configuration - with URL validation
-TURSO_DB_URL = os.getenv('TURSO_DB_URL', 'libsql://betweentodo-deanhunter7.aws-ap-south-1.turso.io')
+TURSO_DB_URL = os.getenv('TURSO_DB_URL', 'https://betweentodo-deanhunter7.aws-ap-south-1.turso.io')
 TURSO_AUTH_TOKEN = os.getenv('TURSO_AUTH_TOKEN', 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJleHAiOjE3NjcwNjQxOTIsImlhdCI6MTc1OTI4ODE5MiwiaWQiOiJmNzQ3NDJiNi03ZGJhLTQ3MDYtYTk5Ny1iOWUzODg4YTIwN2QiLCJyaWQiOiI5YmZlMGE4Mi02Y2MyLTQzZDgtOTk3OS02NWFkOTE1MDhkNzIifQ.8_q5bQhBJAicC41n6qDa2f7u8DxV60FxnJxIembnMjDzL8rqeu-QvdiqXzpLJPBhWD8i0eyUit7BqmX7tMqJBw')
 
 # Ensure the URL has https:// scheme
