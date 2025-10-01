@@ -53,14 +53,33 @@ def init_database():
     result = execute_sql(sql)
     if result:
         st.success("✅ Database initialized successfully!")
+        # Debug the response
+        with st.expander("Debug Init Response"):
+            st.json(result)
 
 def get_todos():
     """Get all todos from database"""
     sql = "SELECT * FROM todos ORDER BY created_at DESC"
     result = execute_sql(sql)
     
-    if result and result['results']:
-        return result['results'][0]['response']['result']['rows']
+    # Debug the response structure
+    with st.expander("Debug Get Todos Response"):
+        st.json(result)
+    
+    if result and 'results' in result:
+        # Try different response structures
+        if (len(result['results']) > 0 and 
+            'response' in result['results'][0] and
+            'result' in result['results'][0]['response'] and
+            'rows' in result['results'][0]['response']['result']):
+            return result['results'][0]['response']['result']['rows']
+        elif (len(result['results']) > 0 and 
+              'result' in result['results'][0] and
+              'rows' in result['results'][0]['result']):
+            return result['results'][0]['result']['rows']
+        else:
+            st.warning("Unexpected response structure")
+            st.json(result)
     return []
 
 def add_todo(task):
@@ -85,10 +104,9 @@ def delete_todo(todo_id):
 st.title("📝 Simple Todo App with Turso")
 st.markdown("A minimal todo app using **Streamlit** and **Turso Database**")
 
-# Show connection status
 st.success("🔗 Connected to Turso Database!")
 
-# Initialize database
+# Initialize database first
 if st.button("Initialize Database"):
     init_database()
 
@@ -105,10 +123,15 @@ with st.form("add_todo_form"):
 
 # Display todos
 st.subheader("Your Todos")
+
+# Add a button to manually fetch todos
+if st.button("Refresh Todos"):
+    st.rerun()
+
 todos = get_todos()
 
 if not todos:
-    st.info("No todos yet! Add one above.")
+    st.info("No todos yet! Add one above or check the debug info for response structure.")
 else:
     for todo in todos:
         col1, col2, col3 = st.columns([1, 6, 1])
@@ -116,14 +139,14 @@ else:
         with col1:
             completed = st.checkbox(
                 "",
-                value=bool(todo['completed']),
+                value=bool(todo.get('completed', False)),
                 key=f"check_{todo['id']}",
                 on_change=toggle_todo,
-                args=(todo['id'], not bool(todo['completed']))
+                args=(todo['id'], not bool(todo.get('completed', False)))
             )
         
         with col2:
-            if todo['completed']:
+            if todo.get('completed'):
                 st.markdown(f"~~{todo['task']}~~")
             else:
                 st.write(todo['task'])
@@ -136,10 +159,3 @@ else:
 
 st.markdown("---")
 st.markdown("Built with ❤️ using Streamlit + Turso")
-
-# Debug section
-with st.expander("Debug Info"):
-    st.write(f"Database URL: {TURSO_DB_URL}")
-    st.write(f"Token length: {len(TURSO_AUTH_TOKEN)} characters")
-    if todos:
-        st.write("Sample todo:", todos[0])
