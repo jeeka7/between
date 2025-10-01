@@ -2,9 +2,13 @@ import streamlit as st
 import requests
 import os
 
-# Turso configuration
+# Turso configuration - with URL validation
 TURSO_DB_URL = os.getenv('TURSO_DB_URL', 'your-turso-database-url')
 TURSO_AUTH_TOKEN = os.getenv('TURSO_AUTH_TOKEN', 'your-turso-auth-token')
+
+# Ensure the URL has https:// scheme
+if not TURSO_DB_URL.startswith(('https://', 'http://')):
+    TURSO_DB_URL = f"https://{TURSO_DB_URL}"
 
 headers = {
     'Authorization': f'Bearer {TURSO_AUTH_TOKEN}',
@@ -80,6 +84,11 @@ def delete_todo(todo_id):
 # Streamlit UI
 st.title("📝 Simple Todo App with Turso")
 st.markdown("A minimal todo app using **Streamlit** and **Turso Database**")
+
+# Show current configuration (for debugging)
+with st.expander("🔧 Debug Info (Remove in production)"):
+    st.write(f"Database URL: {TURSO_DB_URL}")
+    st.write(f"Token exists: {'Yes' if TURSO_AUTH_TOKEN != 'your-turso-auth-token' else 'No'}")
 
 # Initialize database
 if st.button("Initialize Database"):
