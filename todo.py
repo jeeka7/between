@@ -294,4 +294,3 @@ else:
     if not st.session_state.db_initialized:
         if init_db(): st.session_state.db_initialized = True
     if st.session_state.db_initialized: main_app_ui()
-
