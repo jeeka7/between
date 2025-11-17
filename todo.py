@@ -7,25 +7,24 @@ import pandas as pd
 # DB Configuration & Initialization
 # ---------------------------------------------------------------------
 
+@st.cache_resource # <-- This is the main fix
 def get_db_client():
     """
     Initializes and returns a Turso database client.
+    This is cached to prevent re-creating the connection on every rerun.
     """
     url = st.secrets["TURSO_DATABASE_URL"]
     auth_token = st.secrets["TURSO_AUTH_TOKEN"]
 
-    # --- FIX ---
-    # We still need to force the https:// protocol
+    # --- We still need to force the https:// protocol
     if url.startswith("libsql://"):
         url = "https://" + url[len("libsql://"):]
     
     # Use create_client_sync() for synchronous environments like Streamlit
-    # This avoids the asyncio loop error.
     client = create_client_sync(
         url=url,
         auth_token=auth_token
     )
-    # --- END FIX ---
     
     return client
 
