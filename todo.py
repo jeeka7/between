@@ -93,8 +93,20 @@ def add_list(client, name, list_type):
         )
         st.success(f"Created list: {name}")
 
-def get_all_lists(client):
-    rs = client.execute("SELECT * FROM lists ORDER BY last_modified DESC")
+def get_all_lists(client, list_type="All"):
+    """
+    Gets all lists, with an optional filter for 'Simple' or 'Financial'.
+    """
+    query = "SELECT * FROM lists"
+    params = []
+    
+    if list_type != "All":
+        query += " WHERE list_type = ?"
+        params.append(list_type)
+        
+    query += " ORDER BY last_modified DESC"
+    
+    rs = client.execute(query, params)
     return rs.rows
 
 def update_list_name(client, list_id, new_name):
@@ -186,10 +198,18 @@ def main():
             add_list(client, new_list_name, list_type)
             st.rerun()
 
-    all_lists = get_all_lists(client)
+    # --- NEW: List Type Filter ---
+    st.sidebar.markdown("---")
+    list_filter = st.sidebar.radio(
+        "Filter lists by type",
+        ["All", "Simple", "Financial"],
+        key="list_filter"
+    )
+
+    all_lists = get_all_lists(client, list_filter)
     
     if not all_lists:
-        st.info("No lists found. Create one in the sidebar to get started!")
+        st.info(f"No '{list_filter}' lists found. Create one or change your filter.")
         st.stop()
 
     list_options = {l["list_id"]: f"{l['list_name']} ({l['list_type']})" for l in all_lists}
@@ -203,6 +223,12 @@ def main():
     # Get details of the selected list
     selected_list_details = next((l for l in all_lists if l["list_id"] == selected_list_id), None)
     
+    # --- MOVED: Task Filters ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Task Filters")
+    filter_urgent = st.sidebar.checkbox("Show Urgent Only")
+    filter_important = st.sidebar.checkbox("Show Important Only")
+
     if selected_list_details:
         st.sidebar.markdown("---")
         st.sidebar.subheader("List Operations")
@@ -245,26 +271,19 @@ def main():
 
         # 2. Filter and Sort Tasks
         st.subheader("Your Tasks")
-        tasks = get_tasks_for_list(client, selected_list_id)
         
-        if not tasks:
-            st.info("This list is empty. Add a task above!")
-            st.stop()
+        # --- CHANGED: Sort is still here, but filters are read from sidebar ---
+        sort_by = st.selectbox("Sort By", ["Default", "Urgent", "Important"])
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            sort_by = st.selectbox("Sort By", ["Default", "Urgent", "Important"])
-        with col2:
-            filter_urgent = st.checkbox("Show Urgent Only")
-        with col3:
-            filter_important = st.checkbox("Show Important Only")
-
-        # Re-fetch tasks with filters
+        # Re-fetch tasks with filters from the sidebar
         tasks = get_tasks_for_list(client, selected_list_id, sort_by, filter_urgent, filter_important)
 
-# 3. Display Tasks (CRUD)
+        if not tasks:
+            st.info("This list is empty or no tasks match your filter. Add a task above!")
+            st.stop()
+
+        # 3. Display Tasks (CRUD)
         for task in tasks:
-            # We add one more column for the "Edit" button
             cols = st.columns([1, 5, 1, 1, 1, 1]) 
             
             with cols[0]:
@@ -288,14 +307,10 @@ def main():
                 if task["important"] == 'Yes':
                     st.markdown("❗️ **Important**")
             
-            # --- NEW EDIT BUTTON ---
             with cols[4]:
-                # Use a popover to host the edit form
-               # NEW CODE (fixed)
                 with st.popover("Edit"):
                     with st.form(key=f"edit_form_{task['task_id']}"):
                         
-                        # Pre-fill form with existing data
                         new_name = st.text_input("Task Name", value=task['task_name'])
                         
                         urgent_index = 0 if task['urgent'] == 'No' else 1
@@ -321,10 +336,9 @@ def main():
                                 new_important, 
                                 selected_list_id
                             )
-                            st.rerun() # Close popover and refresh list
-            # --- END NEW EDIT BUTTON ---
+                            st.rerun()
 
-            with cols[5]: # This is the 6th column now
+            with cols[5]:
                 if st.button("Delete", key=f"del_{task['task_id']}", type="primary"):
                     delete_task(client, task['task_id'], selected_list_id)
                     st.rerun()
@@ -337,15 +351,9 @@ def main():
         if st.button("Show Printable View"):
             st.header(f"Printable View: {selected_list_details['list_name']}")
             
-            # Use Pandas for a clean table view, which Streamlit can "print" well
             df = pd.DataFrame(tasks)
-            # Clean up for printing
             df_print = df[['task_name', 'urgent', 'important', 'completed']]
             df_print['completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
             
             st.dataframe(df_print, use_container_width=True)
             st.caption("You can print this page using your browser's Print function (Ctrl+P or Cmd+P).")
-
-
-if __name__ == "__main__":
-    main()
