@@ -424,6 +424,12 @@ with get_db_client() as client:
         df_print = df[['task_name', 'urgent', 'important', 'completed']].copy()
         df_print.loc[:, 'completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
 
+
+        # --- ADD THIS LINE ---
+        # Add the numbering directly to the DataFrame
+        df_print.insert(0, '#', range(1, len(df_print) + 1))
+        # --- END OF NEW LINE ---
+        
         # --- NEW DOWNLOAD BUTTON LOGIC ---
         col1, col2 = st.columns(2)
         
