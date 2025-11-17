@@ -2,7 +2,7 @@ import streamlit as st
 from libsql_client import create_client_sync
 import datetime
 import pandas as pd
-
+from weasyprint import HTML
 # ---------------------------------------------------------------------
 # DB Configuration & Initialization
 # ---------------------------------------------------------------------
@@ -26,6 +26,53 @@ def get_db_client():
     )
     
     return client
+
+def create_pdf_from_df(df, list_name):
+    """
+    Generates a PDF from a Pandas DataFrame and returns it as bytes.
+    """
+    
+    # Convert DataFrame to HTML
+    df_html = df.to_html(index=False)
+    
+    # Basic CSS for styling the table in the PDF
+    css_style = """
+    <style>
+        body { font-family: sans-serif; }
+        h1 { text-align: center; }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin-top: 20px;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #f2f2f2; 
+        }
+    </style>
+    """
+    
+    # Combine title, style, and table into one HTML string
+    full_html = f"""
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        {css_style}
+    </head>
+    <body>
+        <h1>{list_name}</h1>
+        {df_html}
+    </body>
+    </html>
+    """
+    
+    # Generate PDF bytes
+    pdf_bytes = HTML(string=full_html).write_pdf()
+    return pdf_bytes
 
 def init_database(client):
     """
@@ -362,20 +409,32 @@ with get_db_client() as client:
             
             st.divider()
 
-       # 4. "Print List" functionality
+      # 4. "Print List" functionality
         st.markdown("---")
         st.subheader("Print List")
-        if st.button("Show Printable View"):
-            st.header(f"Printable View: {selected_list_details['list_name']}")
+
+        # Prepare the DataFrame for both viewing and downloading
+        df = pd.DataFrame(tasks)
+        df_print = df[['task_name', 'urgent', 'important', 'completed']].copy()
+        df_print.loc[:, 'completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
+
+        # --- NEW DOWNLOAD BUTTON LOGIC ---
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Show Printable View"):
+                st.header(f"Printable View: {selected_list_details['list_name']}")
+                st.dataframe(df_print, width='stretch')
+                st.caption("You can print this page using your browser's Print function (Ctrl+P or Cmd+P).")
+
+        with col2:
+            # Generate PDF in memory
+            pdf_data = create_pdf_from_df(df_print, selected_list_details['list_name'])
             
-            df = pd.DataFrame(tasks)
-            # Clean up for printing
-            df_print = df[['task_name', 'urgent', 'important', 'completed']].copy() # Add .copy()
-            
-            # --- FIX 1 (from log): Use .loc to avoid SettingWithCopyWarning ---
-            df_print.loc[:, 'completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
-            
-            # --- FIX 2 (from log): Replace use_container_width with width ---
-            st.dataframe(df_print, width='stretch') 
-            
-            st.caption("You can print this page using your browser's Print function (Ctrl+P or Cmd+P).")
+            # Add the download button
+            st.download_button(
+                label="📥 Download as PDF",
+                data=pdf_data,
+                file_name=f"{selected_list_details['list_name']}.pdf",
+                mime="application/pdf"
+            )
