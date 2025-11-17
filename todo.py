@@ -106,9 +106,20 @@ def get_all_lists(client, list_type="All"):
         
     query += " ORDER BY last_modified DESC"
     
-    rs = client.execute(query, params)
-    return rs.rows
-
+    # --- FIX ---
+    # Call execute() differently based on whether params has content.
+    # Passing an empty list [] was causing the crash.
+    try:
+        if params:
+            rs = client.execute(query, params)
+        else:
+            rs = client.execute(query) # Call without the args parameter
+        
+        return rs.rows
+    except Exception as e:
+        st.error(f"Error fetching lists: {e}")
+        return [] # Return an empty list on error to prevent other crashes
+    # --- END FIX ---
 def update_list_name(client, list_id, new_name):
     if new_name:
         client.execute("UPDATE lists SET list_name = ? WHERE list_id = ?", (new_name, list_id))
