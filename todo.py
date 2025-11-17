@@ -291,7 +291,8 @@ def main():
             # --- NEW EDIT BUTTON ---
             with cols[4]:
                 # Use a popover to host the edit form
-                with st.popover("Edit", key=f"pop_{task['task_id']}"):
+               # NEW CODE (fixed)
+                with st.popover("Edit"):
                     with st.form(key=f"edit_form_{task['task_id']}"):
                         
                         # Pre-fill form with existing data
