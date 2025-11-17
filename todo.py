@@ -7,7 +7,6 @@ import pandas as pd
 # DB Configuration & Initialization
 # ---------------------------------------------------------------------
 
-@st.cache_resource # <-- This is the main fix
 def get_db_client():
     """
     Initializes and returns a Turso database client.
@@ -195,7 +194,7 @@ def main():
     st.set_page_config(layout="wide")
     st.title("✅ Turso To-Do List Manager")
 
-    client = get_db_client()
+with get_db_client() as client:
     init_database(client) # Ensures tables exist
 
     # --- SIDEBAR (List Management) ---
