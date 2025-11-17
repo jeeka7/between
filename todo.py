@@ -266,14 +266,22 @@ with get_db_client() as client:
         st.subheader("Add a New Task")
         with st.form("new_task_form", clear_on_submit=True):
             task_name = st.text_input("Task Description")
+            
             col1, col2 = st.columns(2)
             with col1:
-                urgent = st.selectbox("Urgent?", ["No", "Yes"])
+                # CHANGED to st.checkbox
+                urgent_bool = st.checkbox("🔥 Urgent?")
             with col2:
-                important = st.selectbox("Important?", ["No", "Yes"])
+                # CHANGED to st.checkbox
+                important_bool = st.checkbox("❗️ Important?")
             
             if st.form_submit_button("Add Task"):
-                add_task(client, selected_list_id, task_name, urgent, important)
+                # Convert boolean True/False to "Yes"/"No" strings
+                urgent_str = "Yes" if urgent_bool else "No"
+                important_str = "Yes" if important_bool else "No"
+                
+                # Call add_task with the converted strings
+                add_task(client, selected_list_id, task_name, urgent_str, important_str)
                 st.rerun()
         
         st.markdown("---")
