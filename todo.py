@@ -1,5 +1,5 @@
 import streamlit as st
-import libsql_client
+from libsql_client import create_client_sync
 import datetime
 import pandas as pd
 
@@ -14,18 +14,19 @@ def get_db_client():
     url = st.secrets["TURSO_DATABASE_URL"]
     auth_token = st.secrets["TURSO_AUTH_TOKEN"]
 
-    # --- START FIX ---
-    # This error is caused by an asyncio loop conflict with Streamlit.
-    # We force the client to use the synchronous HTTPS protocol
-    # by replacing the 'libsql' scheme with 'https'.
+    # --- FIX ---
+    # We still need to force the https:// protocol
     if url.startswith("libsql://"):
         url = "https://" + url[len("libsql://"):]
-    # --- END FIX ---
     
-    client = libsql_client.create_client(
+    # Use create_client_sync() for synchronous environments like Streamlit
+    # This avoids the asyncio loop error.
+    client = create_client_sync(
         url=url,
         auth_token=auth_token
     )
+    # --- END FIX ---
+    
     return client
 
 def init_database(client):
