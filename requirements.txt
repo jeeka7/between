@@ -1,2 +1,3 @@
 streamlit
-requests
+libsql_client
+pandas
