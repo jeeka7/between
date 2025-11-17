@@ -138,6 +138,25 @@ def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False,
     rs = client.execute(query, params)
     return rs.rows
 
+
+def update_task_details(client, task_id, task_name, urgent, important, list_id):
+    """
+    Updates the name, urgent, and important status of a task.
+    """
+    if not task_name:
+        st.error("Task name cannot be empty.")
+        return
+
+    try:
+        client.execute(
+            "UPDATE tasks SET task_name = ?, urgent = ?, important = ? WHERE task_id = ?",
+            (task_name, urgent, important, task_id)
+        )
+        update_list_timestamp(client, list_id)
+        st.success("Task updated!")
+    except Exception as e:
+        st.error(f"Failed to update task: {e}")
+
 def update_task_status(client, task_id, completed, list_id):
     client.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1 if completed else 0, task_id))
     update_list_timestamp(client, list_id)
@@ -243,9 +262,11 @@ def main():
         # Re-fetch tasks with filters
         tasks = get_tasks_for_list(client, selected_list_id, sort_by, filter_urgent, filter_important)
 
-        # 3. Display Tasks (CRUD)
+# 3. Display Tasks (CRUD)
         for task in tasks:
-            cols = st.columns([1, 4, 1, 1, 1])
+            # We add one more column for the "Edit" button
+            cols = st.columns([1, 5, 1, 1, 1, 1]) 
+            
             with cols[0]:
                 completed = st.checkbox(
                     "Done", 
@@ -267,10 +288,46 @@ def main():
                 if task["important"] == 'Yes':
                     st.markdown("❗️ **Important**")
             
+            # --- NEW EDIT BUTTON ---
             with cols[4]:
+                # Use a popover to host the edit form
+                with st.popover("Edit", key=f"pop_{task['task_id']}"):
+                    with st.form(key=f"edit_form_{task['task_id']}"):
+                        
+                        # Pre-fill form with existing data
+                        new_name = st.text_input("Task Name", value=task['task_name'])
+                        
+                        urgent_index = 0 if task['urgent'] == 'No' else 1
+                        new_urgent = st.selectbox(
+                            "Urgent?", ["No", "Yes"], 
+                            index=urgent_index, 
+                            key=f"urg_{task['task_id']}"
+                        )
+                        
+                        important_index = 0 if task['important'] == 'No' else 1
+                        new_important = st.selectbox(
+                            "Important?", ["No", "Yes"], 
+                            index=important_index, 
+                            key=f"imp_{task['task_id']}"
+                        )
+                        
+                        if st.form_submit_button("Save"):
+                            update_task_details(
+                                client, 
+                                task['task_id'], 
+                                new_name, 
+                                new_urgent, 
+                                new_important, 
+                                selected_list_id
+                            )
+                            st.rerun() # Close popover and refresh list
+            # --- END NEW EDIT BUTTON ---
+
+            with cols[5]: # This is the 6th column now
                 if st.button("Delete", key=f"del_{task['task_id']}", type="primary"):
                     delete_task(client, task['task_id'], selected_list_id)
                     st.rerun()
+            
             st.divider()
 
         # 4. "Print List" functionality
