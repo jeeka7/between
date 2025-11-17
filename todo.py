@@ -1,245 +1,278 @@
 import streamlit as st
-import requests
-import json
-from datetime import date
-import uuid  # For unique keys in dynamic elements
-import os
+import libsql_client
+import datetime
+import pandas as pd
 
-# Page config for minimalism
-st.set_page_config(page_title="Between", page_icon="📝", layout="wide")
-st.markdown("""
-    <style>
-    .main {background-color: #f9fafb;}
-    .stTextInput > div > div > input {border-radius: 8px; border: 1px solid #d1d5db;}
-    .stSelectbox > div > div > select {border-radius: 8px; border: 1px solid #d1d5db;}
-    .stCheckbox > div {margin-right: 10px;}
-    .stButton > button {border-radius: 6px; background-color: #3b82f6; color: white;}
-    </style>
-""", unsafe_allow_html=True)
+# ---------------------------------------------------------------------
+# DB Configuration & Initialization
+# ---------------------------------------------------------------------
 
-# HTTP client functions
-@st.cache_data(ttl=300)  # Cache queries for 5 min
-def query(sql, params=None):
-    """Execute SELECT and return list of tuples (rows)."""
-    return _execute(sql, params, is_query=True)
+def get_db_client():
+    """
+    Initializes and returns a Turso database client.
+    """
+    url = st.secrets["TURSO_DATABASE_URL"]
+    auth_token = st.secrets["TURSO_AUTH_TOKEN"]
+    
+    client = libsql_client.create_client(
+        url=url,
+        auth_token=auth_token
+    )
+    return client
 
-def execute(sql, params=None):
-    """Execute INSERT/UPDATE/DELETE/CREATE, returns True if successful."""
-    return _execute(sql, params, is_query=False) is not None
-
-def _execute(sql, params=None, is_query=False):
-    http_url = st.secrets["turso"]["http_url"]
-    auth_token = st.secrets["turso"]["token"]
-    url = f"{http_url}/v2/pipeline"
-    headers = {
-        "Authorization": f"Bearer {auth_token}",
-        "Content-Type": "application/json"
-    }
-    stmt = {"sql": sql}
-    if params:
-        stmt["args"] = [{"type": "null" if p is None else ("integer" if isinstance(p, int) else "text"), "value": str(p) if p is not None else None} for p in params]
-    payload = {
-        "requests": [
-            {"type": "execute", "stmt": stmt},
-            {"type": "close"}
-        ]
-    }
+def init_database(client):
+    """
+    Creates the necessary tables if they don't already exist.
+    """
+    # SQL for creating the 'lists' table
+    create_lists_table = """
+    CREATE TABLE IF NOT EXISTS lists (
+        list_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        list_name TEXT NOT NULL,
+        list_type TEXT NOT NULL CHECK(list_type IN ('Simple', 'Financial')),
+        last_modified TIMESTAMP
+    );
+    """
+    
+    # SQL for creating the 'tasks' table
+    create_tasks_table = """
+    CREATE TABLE IF NOT EXISTS tasks (
+        task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        list_id INTEGER NOT NULL,
+        task_name TEXT NOT NULL,
+        urgent TEXT NOT NULL CHECK(urgent IN ('Yes', 'No')) DEFAULT 'No',
+        important TEXT NOT NULL CHECK(important IN ('Yes', 'No')) DEFAULT 'No',
+        completed INTEGER DEFAULT 0, -- 0 for False, 1 for True
+        FOREIGN KEY (list_id) REFERENCES lists(list_id) ON DELETE CASCADE
+    );
+    """
+    # ON DELETE CASCADE means if a list is deleted, all its tasks are also deleted.
+    
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code != 200:
-            st.error(f"DB Error: {response.status_code} - {response.text}")
-            return None
-        data = response.json()
-        if not data.get("results"):
-            return [] if is_query else True
-        result = data["results"][0]
-        if is_query and result.get("type") == "rows":
-            columns = result.get("columns", [])
-            rows = result.get("rows", [])
-            return [tuple(row) for row in rows]  # List of tuples, indexed by column order
-        return True
+        with client.batch() as batch:
+            batch.execute(create_lists_table)
+            batch.execute(create_tasks_table)
     except Exception as e:
-        st.error(f"Request failed: {e}")
-        return None
+        st.error(f"Error initializing database: {e}")
 
-# Init tables (run once after login)
-def init_tables():
-    execute("""
-        CREATE TABLE IF NOT EXISTS lists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            type TEXT CHECK(type IN ('Financial', 'Simple')) NOT NULL,
-            creation_date DATE NOT NULL,
-            deadline_date DATE,
-            pinned INTEGER DEFAULT 0
+def update_list_timestamp(client, list_id):
+    """
+    Updates the 'last_modified' timestamp for a list.
+    """
+    now = datetime.datetime.now()
+    client.execute(
+        "UPDATE lists SET last_modified = ? WHERE list_id = ?",
+        (now, list_id)
+    )
+
+# ---------------------------------------------------------------------
+# CRUD Functions for LISTS
+# ---------------------------------------------------------------------
+
+def add_list(client, name, list_type):
+    if name:
+        now = datetime.datetime.now()
+        client.execute(
+            "INSERT INTO lists (list_name, list_type, last_modified) VALUES (?, ?, ?)",
+            (name, list_type, now)
         )
-    """)
-    execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            list_id INTEGER NOT NULL,
-            task_text TEXT NOT NULL,
-            important INTEGER DEFAULT 0,
-            urgent INTEGER DEFAULT 0,
-            completed INTEGER DEFAULT 0,
-            FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE
+        st.success(f"Created list: {name}")
+
+def get_all_lists(client):
+    rs = client.execute("SELECT * FROM lists ORDER BY last_modified DESC")
+    return rs.rows
+
+def update_list_name(client, list_id, new_name):
+    if new_name:
+        client.execute("UPDATE lists SET list_name = ? WHERE list_id = ?", (new_name, list_id))
+        update_list_timestamp(client, list_id)
+        st.success("List renamed!")
+
+def delete_list(client, list_id):
+    client.execute("DELETE FROM lists WHERE list_id = ?", (list_id,))
+    st.warning("List deleted!")
+
+# ---------------------------------------------------------------------
+# CRUD Functions for TASKS
+# ---------------------------------------------------------------------
+
+def add_task(client, list_id, task_name, urgent, important):
+    if task_name:
+        client.execute(
+            "INSERT INTO tasks (list_id, task_name, urgent, important) VALUES (?, ?, ?, ?)",
+            (list_id, task_name, urgent, important)
         )
-    """)
+        update_list_timestamp(client, list_id)
 
-# Session state for login
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-
-# Admin login (minimal form)
-if not st.session_state.logged_in:
-    st.title("📝 Between")
-    st.markdown("**To-Do Lists Manager**")
-    with st.container():
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            password = st.text_input("Admin Password", type="password")
-        with col2:
-            if st.button("Login", use_container_width=True):
-                if password == st.secrets["password"]:
-                    st.session_state.logged_in = True
-                    st.rerun()
-                else:
-                    st.error("Incorrect password")
-    st.stop()
-
-# Main app (after login)
-st.title("📝 Between")
-init_tables()  # Ensure tables exist
-
-# Sidebar: Lists overview
-st.sidebar.title("📋 Lists")
-st.sidebar.markdown("---")
-
-# Fetch lists (pinned first, then by creation date)
-lists_data = query("SELECT * FROM lists ORDER BY pinned DESC, creation_date ASC")
-list_dict = {row[1]: row[0] for row in lists_data} if lists_data else {}
-
-if lists_data:
-    # Select list
-    selected_name = st.sidebar.selectbox("Select List", ["Create New"] + list(list_dict.keys()))
+def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False, filter_important=False):
+    query = "SELECT * FROM tasks WHERE list_id = ?"
+    params = [list_id]
     
-    if selected_name != "Create New" and selected_name in list_dict:
-        list_id = list_dict[selected_name]
-        selected_data = next(row for row in lists_data if row[1] == selected_name)
+    if filter_urgent:
+        query += " AND urgent = 'Yes'"
+    if filter_important:
+        query += " AND important = 'Yes'"
         
-        # Main content: List details and tasks
-        st.header(selected_name)
+    if sort_key == "urgent":
+        query += " ORDER BY urgent DESC, important DESC"
+    elif sort_key == "important":
+        query += " ORDER BY important DESC, urgent DESC"
+    else:
+        query += " ORDER BY completed ASC, task_id DESC"
         
-        # Show dates
-        col_date1, col_date2 = st.columns(2)
-        with col_date1:
-            st.metric("Created", selected_data[3])
-        with col_date2:
-            if selected_data[4]:
-                st.metric("Deadline", selected_data[4])
-            else:
-                st.write("No deadline")
-        
-        # Type accent
-        type_color = "#3b82f6" if selected_data[2] == "Financial" else "#6b7280"
-        st.markdown(f"**Type:** {selected_data[2]}")
-        st.markdown(f"<div style='width: 100%; height: 4px; background-color: {type_color}; border-radius: 2px;'></div>", unsafe_allow_html=True)
-        
-        st.markdown("---")
-        
-        # Fetch and display tasks (sorted: important+urgent > important > urgent > none)
-        tasks_data = query(
-            "SELECT * FROM tasks WHERE list_id = ? ORDER BY (important + urgent) DESC, important DESC, urgent DESC, id ASC",
-            [list_id]
-        )
-        
-        for task in tasks_data:
-            key_prefix = str(uuid.uuid4())  # Unique keys for dynamic reruns
-            col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
-            
-            with col1:
-                edited_text = st.text_input("", value=task[2], placeholder="Task description", key=f"{key_prefix}_text")  # task[2] is task_text
-            with col2:
-                important = st.checkbox("!", value=bool(task[3]), key=f"{key_prefix}_imp")  # task[3] important
-            with col3:
-                urgent = st.checkbox("⚡", value=bool(task[4]), key=f"{key_prefix}_urg")  # task[4] urgent
-            with col4:
-                completed = st.checkbox("✓", value=bool(task[5]), key=f"{key_prefix}_comp")  # task[5] completed
-            with col5:
-                col_up, col_del = st.columns(2)
-                with col_up:
-                    if st.button("💾", key=f"{key_prefix}_update"):
-                        execute(
-                            "UPDATE tasks SET task_text = ?, important = ?, urgent = ?, completed = ? WHERE id = ?",
-                            [edited_text, int(important), int(urgent), int(completed), task[0]]
-                        )
-                        st.success("Updated!")
-                        st.rerun()
-                with col_del:
-                    if st.button("🗑️", key=f"{key_prefix}_delete"):
-                        execute("DELETE FROM tasks WHERE id = ?", [task[0]])
-                        st.success("Deleted!")
-                        st.rerun()
-        
-        # Add new task form
-        st.markdown("### + Add Task")
-        with st.form("add_task", clear_on_submit=True):
-            new_text = st.text_area("Description", placeholder="What needs to be done?")
-            col_imp, col_urg = st.columns(2)
-            with col_imp:
-                new_important = st.checkbox("Important (!)")
-            with col_urg:
-                new_urgent = st.checkbox("Urgent (⚡)")
-            add_btn = st.form_submit_button("Add Task", use_container_width=True)
-            if add_btn and new_text.strip():
-                execute(
-                    "INSERT INTO tasks (list_id, task_text, important, urgent) VALUES (?, ?, ?, ?)",
-                    [list_id, new_text, int(new_important), int(new_urgent)]
-                )
-                st.success("Task added!")
-                st.rerun()
+    rs = client.execute(query, params)
+    return rs.rows
+
+def update_task_status(client, task_id, completed, list_id):
+    client.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1 if completed else 0, task_id))
+    update_list_timestamp(client, list_id)
+
+def delete_task(client, task_id, list_id):
+    client.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+    update_list_timestamp(client, list_id)
+
+# ---------------------------------------------------------------------
+# Main Streamlit App UI
+# ---------------------------------------------------------------------
+
+def main():
+    st.set_page_config(layout="wide")
+    st.title("✅ Turso To-Do List Manager")
+
+    client = get_db_client()
+    init_database(client) # Ensures tables exist
+
+    # --- SIDEBAR (List Management) ---
+    st.sidebar.title("My Lists")
     
-    # Manage lists (pin/delete) - in sidebar expander for cleanliness
-    with st.sidebar.expander("Manage Lists", expanded=False):
-        for lst in lists_data:
-            col_m1, col_m2, col_m3 = st.columns([3, 1, 1])
-            with col_m1:
-                st.write(f"**{lst[1]}** ({lst[2]})")
-            with col_m2:
-                current_pin = st.checkbox("📌 Pin", value=bool(lst[5]), key=f"pin_{lst[0]}")
-            with col_m3:
-                if st.button("🗑️", key=f"del_lst_{lst[0]}"):
-                    execute("DELETE FROM lists WHERE id = ?", [lst[0]])
-                    st.success(f"Deleted {lst[1]}")
-                    st.rerun()
-            if st.button("Update", key=f"up_pin_{lst[0]}"):
-                execute("UPDATE lists SET pinned = ? WHERE id = ?", [int(current_pin), lst[0]])
-                st.success("Pinned updated!")
-                st.rerun()
-        st.markdown("---")
-
-else:
-    st.info("No lists yet. Create one below.")
-
-# Create new list form (sidebar)
-st.sidebar.markdown("### + New List")
-with st.sidebar.form("new_list", clear_on_submit=True):
-    new_name = st.text_input("Name", placeholder="Unique list name")
-    list_type = st.selectbox("Type", ["Simple", "Financial"])
-    deadline = st.date_input("Deadline (optional)")
-    create_btn = st.form_submit_button("Create List", use_container_width=True)
-    if create_btn and new_name.strip():
-        today = date.today().isoformat()
-        deadline_str = deadline.isoformat() if deadline else None
-        if execute(
-            "INSERT INTO lists (name, type, creation_date, deadline_date, pinned) VALUES (?, ?, ?, ?, 0)",
-            [new_name, list_type, today, deadline_str]
-        ):
-            st.sidebar.success("List created!")
+    with st.sidebar.expander("➕ Create New List", expanded=False):
+        list_type = st.selectbox("List Type", ["Simple", "Financial"], key="list_type")
+        new_list_name = st.text_input("New List Name", key="new_list_name")
+        if st.button("Create List"):
+            add_list(client, new_list_name, list_type)
             st.rerun()
-        else:
-            st.sidebar.error("Error: List name must be unique.")
 
-# Footer for minimalism
-st.markdown("---")
-st.markdown("<small>Powered by Turso HTTP API & Streamlit</small>", unsafe_allow_html=True)
+    all_lists = get_all_lists(client)
+    
+    if not all_lists:
+        st.info("No lists found. Create one in the sidebar to get started!")
+        st.stop()
+
+    list_options = {l["list_id"]: f"{l['list_name']} ({l['list_type']})" for l in all_lists}
+    selected_list_id = st.sidebar.radio(
+        "Select a List",
+        options=list_options.keys(),
+        format_func=lambda x: list_options[x],
+        key="selected_list"
+    )
+
+    # Get details of the selected list
+    selected_list_details = next((l for l in all_lists if l["list_id"] == selected_list_id), None)
+    
+    if selected_list_details:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("List Operations")
+        
+        # Update List Name
+        with st.sidebar.form(key="update_list_form"):
+            new_name = st.text_input("Rename List", value=selected_list_details["list_name"])
+            if st.form_submit_button("Rename"):
+                update_list_name(client, selected_list_id, new_name)
+                st.rerun()
+
+        # Delete List
+        if st.sidebar.button("⚠️ Delete This List"):
+            delete_list(client, selected_list_id)
+            st.rerun()
+        
+        st.sidebar.markdown("---")
+        last_mod = selected_list_details['last_modified']
+        st.sidebar.caption(f"Last modified:\n{last_mod}")
+
+    # --- MAIN AREA (Task Management) ---
+    if selected_list_id:
+        st.header(f"Tasks for: {selected_list_details['list_name']}")
+        
+        # 1. Add New Task
+        st.subheader("Add a New Task")
+        with st.form("new_task_form", clear_on_submit=True):
+            task_name = st.text_input("Task Description")
+            col1, col2 = st.columns(2)
+            with col1:
+                urgent = st.selectbox("Urgent?", ["No", "Yes"])
+            with col2:
+                important = st.selectbox("Important?", ["No", "Yes"])
+            
+            if st.form_submit_button("Add Task"):
+                add_task(client, selected_list_id, task_name, urgent, important)
+                st.rerun()
+        
+        st.markdown("---")
+
+        # 2. Filter and Sort Tasks
+        st.subheader("Your Tasks")
+        tasks = get_tasks_for_list(client, selected_list_id)
+        
+        if not tasks:
+            st.info("This list is empty. Add a task above!")
+            st.stop()
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            sort_by = st.selectbox("Sort By", ["Default", "Urgent", "Important"])
+        with col2:
+            filter_urgent = st.checkbox("Show Urgent Only")
+        with col3:
+            filter_important = st.checkbox("Show Important Only")
+
+        # Re-fetch tasks with filters
+        tasks = get_tasks_for_list(client, selected_list_id, sort_by, filter_urgent, filter_important)
+
+        # 3. Display Tasks (CRUD)
+        for task in tasks:
+            cols = st.columns([1, 4, 1, 1, 1])
+            with cols[0]:
+                completed = st.checkbox(
+                    "Done", 
+                    value=bool(task["completed"]), 
+                    key=f"check_{task['task_id']}",
+                    on_change=update_task_status,
+                    args=(client, task['task_id'], not bool(task["completed"]), selected_list_id)
+                )
+            
+            task_display = f"~~{task['task_name']}~~" if completed else task['task_name']
+            with cols[1]:
+                st.markdown(task_display)
+            
+            with cols[2]:
+                if task["urgent"] == 'Yes':
+                    st.markdown("🔥 **Urgent**")
+            
+            with cols[3]:
+                if task["important"] == 'Yes':
+                    st.markdown("❗️ **Important**")
+            
+            with cols[4]:
+                if st.button("Delete", key=f"del_{task['task_id']}", type="primary"):
+                    delete_task(client, task['task_id'], selected_list_id)
+                    st.rerun()
+            st.divider()
+
+        # 4. "Print List" functionality
+        st.markdown("---")
+        st.subheader("Print List")
+        if st.button("Show Printable View"):
+            st.header(f"Printable View: {selected_list_details['list_name']}")
+            
+            # Use Pandas for a clean table view, which Streamlit can "print" well
+            df = pd.DataFrame(tasks)
+            # Clean up for printing
+            df_print = df[['task_name', 'urgent', 'important', 'completed']]
+            df_print['completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
+            
+            st.dataframe(df_print, use_container_width=True)
+            st.caption("You can print this page using your browser's Print function (Ctrl+P or Cmd+P).")
+
+
+if __name__ == "__main__":
+    main()
