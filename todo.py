@@ -346,11 +346,17 @@ with get_db_client() as client:
             st.info("This list is empty or no tasks match your filter. Add a task above!")
             st.stop()
 
-        # 3. Display Tasks (CRUD)
-        for task in tasks:
-            cols = st.columns([1, 5, 1, 1, 1, 1]) 
+# 3. Display Tasks (CRUD)
+        # Use enumerate(tasks, start=1) to get an index 'idx' starting from 1
+        for idx, task in enumerate(tasks, start=1):
+            
+            # Add a column for the number, adjust widths (new total is 12)
+            cols = st.columns([0.5, 1, 5, 1, 1, 1, 1]) 
             
             with cols[0]:
+                st.markdown(f"**{idx}.**") # Display the task number
+            
+            with cols[1]:
                 completed = st.checkbox(
                     "Done", 
                     value=bool(task["completed"]), 
@@ -360,18 +366,18 @@ with get_db_client() as client:
                 )
             
             task_display = f"~~{task['task_name']}~~" if completed else task['task_name']
-            with cols[1]:
+            with cols[2]:
                 st.markdown(task_display)
             
-            with cols[2]:
+            with cols[3]:
                 if task["urgent"] == 'Yes':
                     st.markdown("🔥 **Urgent**")
             
-            with cols[3]:
+            with cols[4]:
                 if task["important"] == 'Yes':
                     st.markdown("❗️ **Important**")
             
-            with cols[4]:
+            with cols[5]:
                 with st.popover("Edit"):
                     with st.form(key=f"edit_form_{task['task_id']}"):
                         
@@ -402,7 +408,7 @@ with get_db_client() as client:
                             )
                             st.rerun()
 
-            with cols[5]:
+            with cols[6]: # This is the last column now
                 if st.button("Delete", key=f"del_{task['task_id']}", type="primary"):
                     delete_task(client, task['task_id'], selected_list_id)
                     st.rerun()
