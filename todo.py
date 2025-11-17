@@ -222,7 +222,7 @@ with get_db_client() as client:
         st.stop()
 
     list_options = {l["list_id"]: f"{l['list_name']} ({l['list_type']})" for l in all_lists}
-    selected_list_id = st.sidebar.radio(
+    selected_list_id = st.sidebar.selectbox(
         "Select a List",
         options=list_options.keys(),
         format_func=lambda x: list_options[x],
