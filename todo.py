@@ -355,15 +355,20 @@ def main():
             
             st.divider()
 
-        # 4. "Print List" functionality
+       # 4. "Print List" functionality
         st.markdown("---")
         st.subheader("Print List")
         if st.button("Show Printable View"):
             st.header(f"Printable View: {selected_list_details['list_name']}")
             
             df = pd.DataFrame(tasks)
-            df_print = df[['task_name', 'urgent', 'important', 'completed']]
-            df_print['completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
+            # Clean up for printing
+            df_print = df[['task_name', 'urgent', 'important', 'completed']].copy() # Add .copy()
             
-            st.dataframe(df_print, use_container_width=True)
+            # --- FIX 1 (from log): Use .loc to avoid SettingWithCopyWarning ---
+            df_print.loc[:, 'completed'] = df_print['completed'].apply(lambda x: 'Yes' if x == 1 else 'No')
+            
+            # --- FIX 2 (from log): Replace use_container_width with width ---
+            st.dataframe(df_print, width='stretch') 
+            
             st.caption("You can print this page using your browser's Print function (Ctrl+P or Cmd+P).")
