@@ -13,6 +13,14 @@ def get_db_client():
     """
     url = st.secrets["TURSO_DATABASE_URL"]
     auth_token = st.secrets["TURSO_AUTH_TOKEN"]
+
+    # --- START FIX ---
+    # This error is caused by an asyncio loop conflict with Streamlit.
+    # We force the client to use the synchronous HTTPS protocol
+    # by replacing the 'libsql' scheme with 'https'.
+    if url.startswith("libsql://"):
+        url = "https://" + url[len("libsql://"):]
+    # --- END FIX ---
     
     client = libsql_client.create_client(
         url=url,
