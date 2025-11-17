@@ -55,13 +55,19 @@ def init_database(client):
         FOREIGN KEY (list_id) REFERENCES lists(list_id) ON DELETE CASCADE
     );
     """
-    # ON DELETE CASCADE means if a list is deleted, all its tasks are also deleted.
     
     try:
-        with client.batch() as batch:
-            batch.execute(create_lists_table)
-            batch.execute(create_tasks_table)
+        # --- FIX ---
+        # The 'sync' client's batch method takes a list of statements,
+        # not a 'with' block.
+        client.batch([
+            create_lists_table,
+            create_tasks_table
+        ])
+        # --- END FIX ---
+        
     except Exception as e:
+        # This will now show any *real* errors if they happen
         st.error(f"Error initializing database: {e}")
 
 def update_list_timestamp(client, list_id):
