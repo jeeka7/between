@@ -4,6 +4,7 @@ from libsql_client import create_client_sync
 import datetime
 import pandas as pd
 from weasyprint import HTML
+
 # ---------------------------------------------------------------------
 # DB Configuration & Initialization
 # ---------------------------------------------------------------------
@@ -11,7 +12,6 @@ from weasyprint import HTML
 def get_db_client():
     """
     Initializes and returns a Turso database client.
-    This is cached to prevent re-creating the connection on every rerun.
     """
     url = st.secrets["TURSO_DATABASE_URL"]
     auth_token = st.secrets["TURSO_AUTH_TOKEN"]
@@ -103,17 +103,12 @@ def init_database(client):
     """
     
     try:
-        # --- FIX ---
-        # The 'sync' client's batch method takes a list of statements,
-        # not a 'with' block.
         client.batch([
             create_lists_table,
             create_tasks_table
         ])
-        # --- END FIX ---
         
     except Exception as e:
-        # This will now show any *real* errors if they happen
         st.error(f"Error initializing database: {e}")
 
 def update_list_timestamp(client, list_id):
@@ -152,9 +147,6 @@ def get_all_lists(client, list_type="All"):
         
     query += " ORDER BY last_modified DESC"
     
-    # --- FIX ---
-    # Call execute() differently based on whether params has content.
-    # Passing an empty list [] was causing the crash.
     try:
         if params:
             rs = client.execute(query, params)
@@ -164,8 +156,8 @@ def get_all_lists(client, list_type="All"):
         return rs.rows
     except Exception as e:
         st.error(f"Error fetching lists: {e}")
-        return [] # Return an empty list on error to prevent other crashes
-    # --- END FIX ---
+        return [] # Return an empty list on error
+        
 def update_list_name(client, list_id, new_name):
     if new_name:
         client.execute("UPDATE lists SET list_name = ? WHERE list_id = ?", (new_name, list_id))
@@ -242,7 +234,7 @@ def main():
     st.set_page_config(layout="wide")
     st.title("Secrets Debugger")
     
-    st.info("This is the final test. We are checking the secrets.")
+    st.info("We are checking the secrets. If this page loads, the 'bad whitespace' error is fixed.")
 
     try:
         st.subheader("Attempting to read [credentials]:")
@@ -283,3 +275,6 @@ def main():
             key = "a_random_secret_key_12345"
             expiry_days = 30
         """)
+
+if __name__ == "__main__":
+    main()
