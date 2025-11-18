@@ -268,7 +268,6 @@ def main():
 
     # --- 1. CONFIGURE AUTHENTICATOR ---
     # Manually build a new, writable dict
-    # because st.secrets is read-only.
     user_data = st.secrets["credentials"]["usernames"]["jack"]
     creds = {
         "usernames": {
@@ -301,8 +300,9 @@ def main():
         st.title("✅ Turso To-Do List Manager")
         st.sidebar.title(f"Welcome, {st.session_state['name']}!")
 
+        # The main 'with' block is still used for READS
         with get_db_client() as client:
-            init_database(client)
+            init_database(client) # init is fine here
 
             authenticator.logout("Logout", "sidebar")
             st.sidebar.markdown("---")
@@ -311,7 +311,8 @@ def main():
                 list_type = st.selectbox("List Type", ["Simple", "Financial"], key="list_type")
                 new_list_name = st.text_input("New List Name", key="new_list_name")
                 if st.button("Create List"):
-                    add_list(client, new_list_name, list_type)
+                    # 'client' removed from this call
+                    add_list(new_list_name, list_type)
                     st.rerun()
 
             st.sidebar.markdown("---")
@@ -321,6 +322,7 @@ def main():
                 key="list_filter"
             )
 
+            # 'get_all_lists' still uses the main 'client'
             all_lists = get_all_lists(client, list_filter)
 
             if not all_lists:
@@ -340,6 +342,13 @@ def main():
 
             st.sidebar.markdown("---")
             st.sidebar.subheader("Task Filters")
+
+            status_filter = st.sidebar.radio(
+                "Show tasks",
+                ["All", "Incomplete", "Completed"],
+                key="status_filter"
+            )
+
             filter_urgent = st.sidebar.checkbox("Show Urgent Only")
             filter_important = st.sidebar.checkbox("Show Important Only")
 
@@ -350,11 +359,13 @@ def main():
                 with st.sidebar.form(key="update_list_form"):
                     new_name = st.text_input("Rename List", value=selected_list_details["list_name"])
                     if st.form_submit_button("Rename"):
-                        update_list_name(client, selected_list_id, new_name)
+                        # 'client' removed from this call
+                        update_list_name(selected_list_id, new_name)
                         st.rerun()
 
                 if st.sidebar.button("⚠️ Delete This List"):
-                    delete_list(client, selected_list_id)
+                    # 'client' removed from this call
+                    delete_list(selected_list_id)
                     st.rerun()
 
                 st.sidebar.markdown("---")
@@ -378,7 +389,8 @@ def main():
                     if st.form_submit_button("Add Task"):
                         urgent_str = "Yes" if urgent_bool else "No"
                         important_str = "Yes" if important_bool else "No"
-                        add_task(client, selected_list_id, task_name, urgent_str, important_str)
+                        # 'client' removed from this call
+                        add_task(selected_list_id, task_name, urgent_str, important_str)
                         st.rerun()
 
                 st.markdown("---")
@@ -386,7 +398,8 @@ def main():
                 # 2. Filter and Sort Tasks
                 st.subheader("Your Tasks")
                 sort_by = st.selectbox("Sort By", ["Default", "Urgent", "Important"])
-                tasks = get_tasks_for_list(client, selected_list_id, sort_by, filter_urgent, filter_important)
+                # 'get_tasks_for_list' still uses the main 'client'
+                tasks = get_tasks_for_list(client, selected_list_id, sort_by, filter_urgent, filter_important, status_filter)
 
                 if not tasks:
                     st.info("This list is empty or no tasks match your filter. Add a task above!")
@@ -402,8 +415,9 @@ def main():
                             "Done", 
                             value=bool(task["completed"]), 
                             key=f"check_{task['task_id']}",
-                            on_change=update_task_status,
-                            args=(client, task['task_id'], not bool(task["completed"]), selected_list_id)
+                            on_change=update_task_status, # <-- This is the function that failed
+                            # 'client' removed from args
+                            args=(task['task_id'], not bool(task["completed"]), selected_list_id)
                         )
                     task_display = f"~~{task['task_name']}~~" if completed else task['task_name']
                     with cols[2]:
@@ -423,11 +437,19 @@ def main():
                                 important_index = 0 if task['important'] == 'No' else 1
                                 new_important = st.selectbox("Important?", ["No", "Yes"], index=important_index, key=f"imp_{task['task_id']}")
                                 if st.form_submit_button("Save"):
-                                    update_task_details(client, task['task_id'], new_name, new_urgent, new_important, selected_list_id)
+                                    # 'client' removed from this call
+                                    update_task_details(
+                                        task['task_id'], 
+                                        new_name, 
+                                        new_urgent, 
+                                        new_important, 
+                                        selected_list_id
+                                    )
                                     st.rerun()
                     with cols[6]:
                         if st.button("Delete", key=f"del_{task['task_id']}", type="primary"):
-                            delete_task(client, task['task_id'], selected_list_id)
+                            # 'client' removed from this call
+                            delete_task(task['task_id'], selected_list_id)
                             st.rerun()
                     st.divider()
 
