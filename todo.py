@@ -125,16 +125,35 @@ def update_list_timestamp(client, list_id):
 # CRUD Functions for LISTS
 # ---------------------------------------------------------------------
 
-def add_list(client, name, list_type):
-    if name:
+# ---------------------------------------------------------------------
+# CRUD Functions for LISTS (NEW VERSIONS)
+# ---------------------------------------------------------------------
+
+def update_list_timestamp(list_id):
+    """
+    Updates the 'last_modified' timestamp for a list.
+    Opens its own connection.
+    """
+    with get_db_client() as client:
         now = datetime.datetime.now()
         client.execute(
-            "INSERT INTO lists (list_name, list_type, last_modified) VALUES (?, ?, ?)",
-            (name, list_type, now)
+            "UPDATE lists SET last_modified = ? WHERE list_id = ?",
+            (now, list_id)
         )
-        st.success(f"Created list: {name}")
+
+def add_list(name, list_type):
+    if name:
+        with get_db_client() as client:
+            now = datetime.datetime.now()
+            client.execute(
+                "INSERT INTO lists (list_name, list_type, last_modified) VALUES (?, ?, ?)",
+                (name, list_type, now)
+            )
+            st.success(f"Created list: {name}")
 
 def get_all_lists(client, list_type="All"):
+    # This function READS data, so it still needs the main client.
+    # NO CHANGE TO THIS FUNCTION
     """
     Gets all lists, with an optional filter for 'Simple' or 'Financial'.
     """
@@ -156,31 +175,36 @@ def get_all_lists(client, list_type="All"):
         return rs.rows
     except Exception as e:
         st.error(f"Error fetching lists: {e}")
-        return [] # Return an empty list on error
-        
-def update_list_name(client, list_id, new_name):
+        return []
+
+def update_list_name(list_id, new_name):
     if new_name:
-        client.execute("UPDATE lists SET list_name = ? WHERE list_id = ?", (new_name, list_id))
-        update_list_timestamp(client, list_id)
+        with get_db_client() as client:
+            client.execute("UPDATE lists SET list_name = ? WHERE list_id = ?", (new_name, list_id))
+        update_list_timestamp(list_id)
         st.success("List renamed!")
 
-def delete_list(client, list_id):
-    client.execute("DELETE FROM lists WHERE list_id = ?", (list_id,))
+def delete_list(list_id):
+    with get_db_client() as client:
+        client.execute("DELETE FROM lists WHERE list_id = ?", (list_id,))
     st.warning("List deleted!")
 
 # ---------------------------------------------------------------------
-# CRUD Functions for TASKS
+# CRUD Functions for TASKS (NEW VERSIONS)
 # ---------------------------------------------------------------------
 
-def add_task(client, list_id, task_name, urgent, important):
+def add_task(list_id, task_name, urgent, important):
     if task_name:
-        client.execute(
-            "INSERT INTO tasks (list_id, task_name, urgent, important) VALUES (?, ?, ?, ?)",
-            (list_id, task_name, urgent, important)
-        )
-        update_list_timestamp(client, list_id)
+        with get_db_client() as client:
+            client.execute(
+                "INSERT INTO tasks (list_id, task_name, urgent, important) VALUES (?, ?, ?, ?)",
+                (list_id, task_name, urgent, important)
+            )
+        update_list_timestamp(list_id)
 
-def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False, filter_important=False):
+def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False, filter_important=False, status_filter="All"):
+    # This function READS data, so it still needs the main client.
+    # NO CHANGE TO THIS FUNCTION
     query = "SELECT * FROM tasks WHERE list_id = ?"
     params = [list_id]
     
@@ -188,6 +212,11 @@ def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False,
         query += " AND urgent = 'Yes'"
     if filter_important:
         query += " AND important = 'Yes'"
+    
+    if status_filter == "Incomplete":
+        query += " AND completed = 0"
+    elif status_filter == "Completed":
+        query += " AND completed = 1"
         
     if sort_key == "urgent":
         query += " ORDER BY urgent DESC, important DESC"
@@ -200,7 +229,7 @@ def get_tasks_for_list(client, list_id, sort_key="task_id", filter_urgent=False,
     return rs.rows
 
 
-def update_task_details(client, task_id, task_name, urgent, important, list_id):
+def update_task_details(task_id, task_name, urgent, important, list_id):
     """
     Updates the name, urgent, and important status of a task.
     """
@@ -209,22 +238,26 @@ def update_task_details(client, task_id, task_name, urgent, important, list_id):
         return
 
     try:
-        client.execute(
-            "UPDATE tasks SET task_name = ?, urgent = ?, important = ? WHERE task_id = ?",
-            (task_name, urgent, important, task_id)
-        )
-        update_list_timestamp(client, list_id)
+        with get_db_client() as client:
+            client.execute(
+                "UPDATE tasks SET task_name = ?, urgent = ?, important = ? WHERE task_id = ?",
+                (task_name, urgent, important, task_id)
+            )
+        update_list_timestamp(list_id)
         st.success("Task updated!")
     except Exception as e:
         st.error(f"Failed to update task: {e}")
 
-def update_task_status(client, task_id, completed, list_id):
-    client.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1 if completed else 0, task_id))
-    update_list_timestamp(client, list_id)
+def update_task_status(task_id, completed, list_id):
+    # This is the function that caused your error
+    with get_db_client() as client:
+        client.execute("UPDATE tasks SET completed = ? WHERE task_id = ?", (1 if completed else 0, task_id))
+    update_list_timestamp(list_id)
 
-def delete_task(client, task_id, list_id):
-    client.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
-    update_list_timestamp(client, list_id)
+def delete_task(task_id, list_id):
+    with get_db_client() as client:
+        client.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+    update_list_timestamp(list_id)
 
 # ---------------------------------------------------------------------
 # Main Streamlit App UI
