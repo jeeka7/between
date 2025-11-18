@@ -234,15 +234,33 @@ def main():
     st.set_page_config(layout="wide")
 
     # --- 1. CONFIGURE AUTHENTICATOR ---
+    # --- 1. CONFIGURE AUTHENTICATOR ---
     try:
-        # We copy the secrets from Streamlit's read-only object
-        creds = copy.deepcopy(st.secrets["credentials"])
+        # --- THIS IS THE CORRECT FIX ---
+        # We manually build a new, writable dict
+        # because st.secrets is read-only and can't be deep-copied.
+        
+        # 1. Get the read-only user data (for your username "jack")
+        user_data = st.secrets["credentials"]["usernames"]["jack"]
+        
+        # 2. Build the new, writable dictionary
+        creds = {
+            "usernames": {
+                "jack": {
+                    "email": user_data["email"],
+                    "name": user_data["name"],
+                    "password": user_data["password"]
+                }
+            }
+        }
+        # --- END FIX ---
+        
         cookie_name = st.secrets["cookie"]["name"]
         cookie_key = st.secrets["cookie"]["key"]
         cookie_expiry = st.secrets["cookie"]["expiry_days"]
 
         authenticator = stauth.Authenticate(
-            creds,
+            creds, # Pass the new (manually built) dict
             cookie_name,
             cookie_key,
             cookie_expiry
