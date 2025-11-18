@@ -235,17 +235,14 @@ def main():
 
     # --- 1. CONFIGURE AUTHENTICATOR ---
     try:
-        # --- THIS IS THE FIX ---
         # We copy the secrets from Streamlit's read-only object
-        # into a normal Python dictionary that the library can modify.
         creds = dict(st.secrets["credentials"])
         cookie_name = st.secrets["cookie"]["name"]
         cookie_key = st.secrets["cookie"]["key"]
         cookie_expiry = st.secrets["cookie"]["expiry_days"]
-        # --- END FIX ---
 
         authenticator = stauth.Authenticate(
-            creds, # Pass the new (copied) dict
+            creds,
             cookie_name,
             cookie_key,
             cookie_expiry
@@ -258,12 +255,16 @@ def main():
         return # Stop the app
 
     # --- 2. RENDER LOGIN FORM ---
-    name, authentication_status, username = authenticator.login()
+    # --- THIS IS THE FIX ---
+    # The login() function just renders the widget.
+    # It does not return anything.
+    authenticator.login()
+    # --- END FIX ---
 
     # --- 3. CHECK LOGIN STATUS ---
+    # We check session_state (which the widget updates)
     if st.session_state["authentication_status"]:
         
-        # --- This try/except block will catch any new errors ---
         try:
             # --- YOUR APP LOGIC STARTS HERE ---
             st.title("✅ Turso To-Do List Manager")
@@ -295,7 +296,6 @@ def main():
                     st.info(f"No '{list_filter}' lists found. Create one or change your filter.")
                     st.stop()
 
-                # --- THIS IS THE FIXED LINE ---
                 list_options = {l["list_id"]: f"{l['list_name']} ({l['list_type']})" for l in all_lists}
                 
                 selected_list_id = st.sidebar.selectbox(
@@ -432,6 +432,7 @@ def main():
 
     elif st.session_state["authentication_status"] is False:
         st.error('Username/password is incorrect')
+    # --- SECOND FIX: Repaired typo 'satus' -> 'status' ---
     elif st.session_state["authentication_status"] is None:
         st.warning('Please enter your username and password')
 
