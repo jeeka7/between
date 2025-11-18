@@ -290,7 +290,7 @@ def main():
                 st.info(f"No '{list_filter}' lists found. Create one or change your filter.")
                 st.stop()
 
-            list_options = {l["list_id"]: f"{l['list_name']} ({l['type']})" for l in all_lists}
+            list_options = {l["list_id"]: f"{l['list_name']} ({l['list_type']})" for l in all_lists}
             selected_list_id = st.sidebar.selectbox(
                 "Select a List",
                 options=list_options.keys(),
