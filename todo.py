@@ -4,7 +4,7 @@ from libsql_client import create_client_sync
 import datetime
 import pandas as pd
 from weasyprint import HTML
-
+import copy
 # ---------------------------------------------------------------------
 # DB Configuration & Initialization
 # ---------------------------------------------------------------------
@@ -236,7 +236,7 @@ def main():
     # --- 1. CONFIGURE AUTHENTICATOR ---
     try:
         # We copy the secrets from Streamlit's read-only object
-        creds = dict(st.secrets["credentials"])
+        creds = copy.deepcopy(st.secrets["credentials"])
         cookie_name = st.secrets["cookie"]["name"]
         cookie_key = st.secrets["cookie"]["key"]
         cookie_expiry = st.secrets["cookie"]["expiry_days"]
