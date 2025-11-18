@@ -235,12 +235,22 @@ def main():
 
     # --- 1. CONFIGURE AUTHENTICATOR ---
     try:
+        # --- THIS IS THE FIX ---
+        # We copy the secrets from Streamlit's read-only object
+        # into a normal Python dictionary that the library can modify.
+        creds = dict(st.secrets["credentials"])
+        cookie_name = st.secrets["cookie"]["name"]
+        cookie_key = st.secrets["cookie"]["key"]
+        cookie_expiry = st.secrets["cookie"]["expiry_days"]
+        # --- END FIX ---
+
         authenticator = stauth.Authenticate(
-            st.secrets["credentials"],
-            st.secrets["cookie"]["name"],
-            st.secrets["cookie"]["key"],
-            st.secrets["cookie"]["expiry_days"]
+            creds, # Pass the new (copied) dict
+            cookie_name,
+            cookie_key,
+            cookie_expiry
         )
+
     except Exception as e:
         st.error("APP CRASHED trying to set up the authenticator.")
         st.error("This is 100% a problem with your Streamlit Secrets.")
@@ -422,7 +432,7 @@ def main():
 
     elif st.session_state["authentication_status"] is False:
         st.error('Username/password is incorrect')
-    elif st.session_state["authentication_satus"] is None:
+    elif st.session_state["authentication_status"] is None:
         st.warning('Please enter your username and password')
 
 if __name__ == "__main__":
